@@ -15,3 +15,15 @@ Standard-Hotkey: `Ctrl+Alt+E`. Er öffnet die Modell- oder Download-Auswahl, auc
 **Modelle** weist einen Namen und einen Zielordner zu. Kategorien über `+` sortieren die Buttons. Der Haken „Auch im Dateinamen“ schreibt die Kategorie zusätzlich in den Namen. Ein `[]`-Tag, den du direkt in den Namen schreibst, bleibt beim Speichern erhalten.
 
 **Downloads** setzt Typ, Ziel und Inhalt zu einem Namen zusammen, zum Beispiel `[Clip] [Hund] [Sitzen]`. Der Zielordner ist der Basisordner des Typs plus der Ordnername des Ziels.
+
+## Beispiele
+
+Die Bilder zeigen die mitgelieferten Beispielnamen Hund, Katze, Familie und Studio.
+
+### Modelle
+
+![Modelle mit den Kategorien Familie und Studio](images/modelle.png)
+
+### Downloads
+
+![Downloads mit dem Namen Clip, Hund und Sitzen](images/downloads.png)
