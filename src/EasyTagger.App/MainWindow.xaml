@@ -1,0 +1,256 @@
+<Window x:Class="EasyTagger.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Easy Tagger"
+        Width="1040" Height="860" MinWidth="860" MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource Bg}"
+        Foreground="{StaticResource Text}"
+        FontFamily="{StaticResource AppFont}"
+        Icon="Assets/app.ico">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{StaticResource Top}" Padding="22,14">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="ProfileModelsButton" Style="{StaticResource Chip}" Margin="0,0,8,0" Click="OnProfileModels"/>
+                    <Button x:Name="ProfileDownloadsButton" Style="{StaticResource Chip}" Margin="0,0,16,0" Click="OnProfileDownloads"/>
+                    <Button x:Name="LangDeButton" Style="{StaticResource Chip}" Margin="0,0,8,0" Click="OnGerman"/>
+                    <Button x:Name="LangEnButton" Style="{StaticResource Chip}" Margin="0" Click="OnEnglish"/>
+                </StackPanel>
+                <TextBlock Text="EASY TAGGER" FontSize="22" FontWeight="ExtraBold"
+                           Foreground="{StaticResource Text}" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="960" Margin="28,22,28,36">
+                <TextBlock x:Name="EyebrowText" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,0,0,8"/>
+                <TextBlock x:Name="HeroTitle" FontSize="28" FontWeight="ExtraBold" Margin="0,0,0,8"/>
+                <TextBlock x:Name="HeroSub" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button x:Name="NavWatchButton" Style="{StaticResource Chip}" Click="OnNavWatch"/>
+                    <Button x:Name="NavModelsButton" Style="{StaticResource Chip}" Click="OnNavModels"/>
+                    <Button x:Name="NavDownloadsButton" Style="{StaticResource Chip}" Click="OnNavDownloads"/>
+                    <Button x:Name="NavBatchButton" Style="{StaticResource Chip}" Click="OnNavBatch"/>
+                    <Button x:Name="NavLogButton" Style="{StaticResource Chip}" Click="OnNavLog"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,18">
+                    <Border x:Name="StatusWatchChip" Style="{StaticResource StatusChip}">
+                        <TextBlock x:Name="StatusWatchText" FontWeight="Bold"/>
+                    </Border>
+                    <Border Style="{StaticResource StatusChip}">
+                        <TextBlock x:Name="StatusActionText" FontWeight="Bold"/>
+                    </Border>
+                    <Border Style="{StaticResource StatusChip}">
+                        <TextBlock x:Name="StatusModelText" FontWeight="Bold"/>
+                    </Border>
+                    <Border Style="{StaticResource StatusChip}" Margin="0">
+                        <TextBlock x:Name="StatusHotkeyText" FontWeight="Bold"/>
+                    </Border>
+                </StackPanel>
+
+                <Border x:Name="WatchSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Border Style="{StaticResource SectionBar}">
+                            <DockPanel>
+                                <Border Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="WatchTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <StackPanel Margin="16,14,16,8">
+                            <DockPanel x:Name="WatchFolderRow" Margin="0,0,0,10">
+                                <Button x:Name="BrowseFolderButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnBrowseFolder"/>
+                                <TextBox x:Name="FolderBox" Margin="0,0,8,0" LostFocus="OnFolderLostFocus"/>
+                            </DockPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="ToggleWatchButton" Style="{StaticResource Chip}" Click="OnToggleWatch"/>
+                                <Button x:Name="TagExistingButton" Style="{StaticResource Chip}" Click="OnTagExisting"/>
+                                <Button x:Name="UndoButton" Style="{StaticResource Chip}" Click="OnUndo"/>
+                                <Button x:Name="ActionMoveButton" Style="{StaticResource Chip}" Click="OnMove"/>
+                                <Button x:Name="ActionCopyButton" Style="{StaticResource Chip}" Click="OnCopy"/>
+                                <Button x:Name="ActionRenameButton" Style="{StaticResource Chip}" Click="OnRename"/>
+                            </StackPanel>
+                            <DockPanel Margin="0,4,0,0">
+                                <Button x:Name="SaveHotkeyButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnSaveHotkey"/>
+                                <TextBox x:Name="HotkeyBox" Margin="0,0,8,0"/>
+                            </DockPanel>
+                            <CheckBox x:Name="FinalNamesBox" Checked="OnOptionChanged" Unchecked="OnOptionChanged"/>
+                            <CheckBox x:Name="ProcessExistingBox" Checked="OnOptionChanged" Unchecked="OnOptionChanged"/>
+                            <CheckBox x:Name="CloseToTrayBox" Checked="OnOptionChanged" Unchecked="OnOptionChanged"/>
+                            <CheckBox x:Name="StartInTrayBox" Click="OnStartInTray"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="ModelsSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Border Style="{StaticResource SectionBar}">
+                            <DockPanel>
+                                <Border Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="ModelsTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <StackPanel Margin="16,14,16,8">
+                            <DockPanel Margin="0,0,0,8">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                    <Button Style="{StaticResource Chip}" Content="+" Click="OnAddCategory"/>
+                                    <Button Style="{StaticResource Chip}" Content="−" Click="OnRemoveCategory"/>
+                                </StackPanel>
+                                <WrapPanel x:Name="CategoryPanel"/>
+                            </DockPanel>
+                            <WrapPanel x:Name="ModelPanel"/>
+                            <Button x:Name="AddModelButton" Style="{StaticResource Chip}" HorizontalAlignment="Left" Click="OnAddModel"/>
+                            <TextBlock x:Name="ModelNowHint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,8"/>
+                            <Button x:Name="RunModelNowButton" Style="{StaticResource Chip}" HorizontalAlignment="Left" Click="OnRunModelDirect"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="BatchSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button x:Name="BatchToggle" Style="{StaticResource SectionToggle}" Click="OnToggleBatch">
+                            <DockPanel>
+                                <TextBlock x:Name="BatchChevron" DockPanel.Dock="Right" Text="▸" FontSize="16"
+                                           Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                <Border DockPanel.Dock="Left" Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="BatchTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                                    <TextBlock x:Name="BatchSummary" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="Normal"
+                                               TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="BatchBody" Visibility="Collapsed" Margin="16,14,16,8">
+                            <TextBlock x:Name="BatchStep1" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                            <TextBlock x:Name="BatchStep1Hint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                            <TextBlock x:Name="ModelFolderActive" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                            <TextBlock x:Name="BatchStep2" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                            <TextBlock x:Name="BatchStep2Hint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                            <DockPanel Margin="0,0,0,4">
+                                <Button x:Name="BrowseModelFolderButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnBrowseModelFolder"/>
+                                <TextBox x:Name="ModelFolderBox" Margin="0,0,8,0" LostFocus="OnModelFolderLostFocus"/>
+                            </DockPanel>
+                            <CheckBox x:Name="FolderTagBox" Checked="OnOptionChanged" Unchecked="OnOptionChanged" Margin="0,4,0,0"/>
+
+                            <TextBlock x:Name="BatchStep3" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" Margin="0,14,0,0"/>
+                            <TextBlock x:Name="BatchStep3Hint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="PreviewModelFolderButton" Style="{StaticResource Chip}" Click="OnPreviewModelFolder"/>
+                                <Button x:Name="RunModelFolderButton" Style="{StaticResource Chip}" Click="OnRunModelFolder"/>
+                            </StackPanel>
+                            <TextBlock x:Name="ModelFolderStatus" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <ListBox x:Name="ModelFolderPreview" Style="{StaticResource DarkList}" Height="160"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="DownloadsSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Border Style="{StaticResource SectionBar}">
+                            <DockPanel>
+                                <Border Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="DownloadsTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <StackPanel Margin="16,14,16,8">
+                            <TextBlock x:Name="TypeLabel" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                            <DockPanel>
+                                <Button x:Name="AddTypeButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddType"/>
+                                <WrapPanel x:Name="TypePanel"/>
+                            </DockPanel>
+                            <TextBlock x:Name="TypeFolderLabel" Foreground="{StaticResource Muted}" Margin="0,4,0,6"/>
+                            <DockPanel Margin="0,0,0,8">
+                                <Button x:Name="BrowseTypeFolderButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnBrowseTypeFolder"/>
+                                <TextBox x:Name="TypeFolderBox" Margin="0,0,8,0" LostFocus="OnTypeFolderLostFocus"/>
+                            </DockPanel>
+                            <TextBlock x:Name="TargetLabel" Foreground="{StaticResource Muted}" Margin="0,8,0,6"/>
+                            <DockPanel>
+                                <Button x:Name="AddTargetButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddTarget"/>
+                                <WrapPanel x:Name="TargetPanel"/>
+                            </DockPanel>
+                            <TextBlock x:Name="ContentLabel" Foreground="{StaticResource Muted}" Margin="0,8,0,6"/>
+                            <DockPanel>
+                                <Button x:Name="AddContentButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddContent"/>
+                                <WrapPanel x:Name="ContentPanel"/>
+                            </DockPanel>
+                            <TextBlock x:Name="PreviewCaption" Foreground="{StaticResource Muted}" Margin="0,12,0,4"/>
+                            <TextBlock x:Name="PreviewNameText" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="PreviewFolderText" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="EncodeSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Button x:Name="EncodeToggle" Style="{StaticResource SectionToggle}" Click="OnToggleEncode">
+                            <DockPanel>
+                                <TextBlock x:Name="EncodeChevron" DockPanel.Dock="Right" Text="▸" FontSize="16"
+                                           Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                <Border DockPanel.Dock="Left" Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <StackPanel>
+                                    <TextBlock x:Name="EncodeTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                                    <TextBlock x:Name="EncodeSummary" Foreground="{StaticResource Muted}" FontSize="13" FontWeight="Normal"
+                                               TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Button>
+                        <StackPanel x:Name="EncodeBody" Visibility="Collapsed" Margin="16,14,16,8">
+                            <CheckBox x:Name="EncodeEnabledBox" Checked="OnEncodeChanged" Unchecked="OnEncodeChanged"/>
+                            <TextBlock x:Name="EncodeHint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="EncodeCrfButton" Style="{StaticResource Chip}" Click="OnEncodeCrf"/>
+                                <Button x:Name="EncodeBitrateButton" Style="{StaticResource Chip}" Click="OnEncodeBitrate"/>
+                            </StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock x:Name="EncodeCrfLabel" Width="140" VerticalAlignment="Center"/>
+                                <TextBox x:Name="EncodeCrfBox" Width="80" HorizontalAlignment="Left" LostFocus="OnEncodeChanged"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock x:Name="EncodeVideoLabel" Width="140" VerticalAlignment="Center"/>
+                                <TextBox x:Name="EncodeVideoBox" Width="80" HorizontalAlignment="Left" LostFocus="OnEncodeChanged"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock x:Name="EncodeAudioLabel" Width="140" VerticalAlignment="Center"/>
+                                <TextBox x:Name="EncodeAudioBox" Width="80" HorizontalAlignment="Left" LostFocus="OnEncodeChanged"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock x:Name="EncodePresetLabel" Width="140" VerticalAlignment="Center"/>
+                                <ComboBox x:Name="EncodePresetBox" Width="140" HorizontalAlignment="Left"
+                                          SelectionChanged="OnPresetChanged"/>
+                            </DockPanel>
+                            <CheckBox x:Name="EncodeKeepBox" Checked="OnEncodeChanged" Unchecked="OnEncodeChanged"/>
+                            <TextBlock x:Name="EncodeFfmpegLabel" Foreground="{StaticResource Muted}" Margin="0,8,0,4"/>
+                            <DockPanel Margin="0,0,0,8">
+                                <Button x:Name="BrowseFfmpegButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="..." Click="OnBrowseFfmpeg"/>
+                                <TextBox x:Name="FfmpegBox" Margin="0,0,8,0" LostFocus="OnEncodeChanged"/>
+                            </DockPanel>
+                            <TextBlock x:Name="EncodeFfprobeLabel" Foreground="{StaticResource Muted}" Margin="0,0,0,4"/>
+                            <DockPanel Margin="0,0,0,8">
+                                <Button x:Name="BrowseFfprobeButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Content="..." Click="OnBrowseFfprobe"/>
+                                <TextBox x:Name="FfprobeBox" Margin="0,0,8,0" LostFocus="OnEncodeChanged"/>
+                            </DockPanel>
+                            <TextBlock x:Name="EncodeToolsText" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="LogSection" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <Border Style="{StaticResource SectionBar}">
+                            <DockPanel>
+                                <Button x:Name="ClearLogButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Margin="0" Click="OnClearLog"/>
+                                <Border DockPanel.Dock="Left" Width="3" Background="{StaticResource LabelCyan}" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="LogTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Border>
+                        <TextBox x:Name="LogBox" Margin="16" Height="160" IsReadOnly="True"
+                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 FontSize="13" FontWeight="Normal"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

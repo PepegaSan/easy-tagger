@@ -1,0 +1,48 @@
+{
+  "language": "de",
+  "watch_folder": "",
+  "poll_interval": 2,
+  "stable_checks": 2,
+  "stable_seconds": 30,
+  "action": "move",
+  "process_existing_on_start": false,
+  "extensions": [".mp4", ".mov", ".mkv", ".avi", ".webm", ".gif", ".m4v"],
+  "ignore_name_contains": [".tmp", ".part", ".temp", "~"],
+  "watch_only_final_names": true,
+  "models": [
+    {
+      "name": "[ExampleModel]",
+      "folder": "",
+      "categories": [],
+      "categories_in_name": []
+    }
+  ],
+  "model_categories": [],
+  "active_model": "[ExampleModel]",
+  "close_to_tray": true,
+  "start_in_tray": false,
+  "window_width": 0,
+  "window_height": 0,
+  "batch_root": "",
+  "batch_use_folder_names": true,
+  "batch_tag_separator": " -- ",
+  "batch_rules": [],
+  "hotkey": "Ctrl+Alt+E",
+  "active_profile": "models",
+  "download_picker": {
+    "version": 1,
+    "types": [
+      { "id": "clip", "label": "Clip", "tag": "Clip", "base_folder": "", "folder_name": "" },
+      { "id": "video", "label": "Video", "tag": "Video", "base_folder": "", "folder_name": "" }
+    ],
+    "targets": [
+      { "id": "hund", "label": "Hund", "tag": "Hund", "base_folder": "", "folder_name": "hund" },
+      { "id": "katze", "label": "Katze", "tag": "Katze", "base_folder": "", "folder_name": "katze" }
+    ],
+    "contents": [
+      { "id": "sitzen", "label": "Sitzen", "tag": "Sitzen", "base_folder": "", "folder_name": "" },
+      { "id": "laufen", "label": "Laufen", "tag": "Laufen", "base_folder": "", "folder_name": "" }
+    ],
+    "last_selection": { "type": "clip", "target": "hund", "contents": ["sitzen"] }
+  }
+}

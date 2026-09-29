@@ -2,4 +2,6 @@
 obj/
 .vs/
 *.user
+publish/
+dist/
 
