@@ -1,29 +1,29 @@
 # Easy Tagger
 
-Eigenständiges Windows-Programm zum Umbenennen und Verschieben von Videodateien. Es benutzt keine Python-Installation und kein AutoHotkey.
+A standalone Windows program for renaming and moving video files. It does not need Python or AutoHotkey.
 
-Die Oberfläche folgt dem dunklen Guide-Layout: schwarzer Grund, rote Abschnittsleiste, Chip-Buttons und ein goldener Rand für die aktive Auswahl.
+The window uses a dark layout: black background, a red section bar, chip buttons, and a red highlight for the active selection.
 
 ## Start
 
-Doppelklick auf `start.bat`. Dafür ist das .NET 8 SDK nötig. Die Konfiguration liegt unter `%LocalAppData%\EasyTagger\config.json`, nicht im Projektordner und nicht bei einem anderen Programm.
+Double-click `start.bat`. That requires the .NET 8 SDK. Settings are stored in `%LocalAppData%\EasyTagger\config.json`, outside the project folder.
 
-Standard-Hotkey: `Ctrl+Alt+E`. Er öffnet die Modell- oder Download-Auswahl, auch wenn das Fenster im Tray liegt. Schließen legt das Fenster in den Tray. Beenden geht über das Tray-Menü.
+The default hotkey is `Ctrl+Alt+E`. It opens the model or download picker even when the window is in the tray. Closing the window sends it to the tray. Quit from the tray menu.
 
-## Profile
+## Profiles
 
-**Modelle** weist einen Namen und einen Zielordner zu. Kategorien über `+` sortieren die Buttons. Der Haken „Auch im Dateinamen“ schreibt die Kategorie zusätzlich in den Namen. Ein `[]`-Tag, den du direkt in den Namen schreibst, bleibt beim Speichern erhalten.
+**Models** assigns a name and a destination folder. Categories added with `+` filter the buttons. The “also in the file name” option writes the category into the name as well. A `[]` tag typed directly into the name is kept when you save.
 
-**Downloads** setzt Typ, Ziel und Inhalt zu einem Namen zusammen, zum Beispiel `[Clip] [Hund] [Sitzen]`. Der Zielordner ist der Basisordner des Typs plus der Ordnername des Ziels.
+**Downloads** builds a name from type, target, and content, for example `[Clip] [Hund] [Sitzen]`. The destination folder is the type’s base folder plus the target’s folder name.
 
-## Beispiele
+## Examples
 
-Die Bilder zeigen die mitgelieferten Beispielnamen Hund, Katze, Familie und Studio.
+The screenshots use the built-in sample names Hund, Katze, Familie, and Studio.
 
-### Modelle
+### Models
 
-![Modelle mit den Kategorien Familie und Studio](images/modelle.png)
+![Models with the Familie and Studio categories](images/modelle.png)
 
 ### Downloads
 
-![Downloads mit dem Namen Clip, Hund und Sitzen](images/downloads.png)
+![Downloads composing the name Clip, Hund, and Sitzen](images/downloads.png)
