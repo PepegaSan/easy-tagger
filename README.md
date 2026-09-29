@@ -27,3 +27,7 @@ The screenshots use the built-in sample names Hund, Katze, Familie, and Studio.
 ### Downloads
 
 ![Downloads composing the name Clip, Hund, and Sitzen](images/downloads.png)
+
+## License
+
+The program is released under the [MIT License](LICENSE). The Inter font files in `src/EasyTagger.App/Fonts` stay under the SIL Open Font License.
