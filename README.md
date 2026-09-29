@@ -10,6 +10,12 @@ Double-click `start.bat`. That requires the .NET 8 SDK. Settings are stored in `
 
 The default hotkey is `Ctrl+Alt+E`. It opens the model or download picker even when the window is in the tray. Closing the window sends it to the tray. Quit from the tray menu.
 
+## FFmpeg
+
+Re-encoding is optional. When it is on, Easy Tagger needs both `ffmpeg` and `ffprobe`. It looks for them on your PATH, and also in `C:\ffmpeg` or `C:\Program Files\ffmpeg\bin`.
+
+[Install FFmpeg on Windows and add it to PATH](https://ffmpeg-cookbook.com/en/articles/install-ffmpeg/) explains the download and the PATH setting in plain steps. The essentials build is enough. After changing PATH, quit Easy Tagger from the tray and start it again.
+
 ## Profiles
 
 **Models** assigns a name and a destination folder. Categories added with `+` filter the buttons. The “also in the file name” option writes the category into the name as well. A `[]` tag typed directly into the name is kept when you save.
