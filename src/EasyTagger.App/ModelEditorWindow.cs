@@ -8,6 +8,7 @@ public sealed class ModelEditorWindow : Window
 {
     readonly TextBox _name = new() { Margin = new Thickness(0, 4, 0, 10) };
     readonly TextBox _folder = new() { Margin = new Thickness(0, 4, 0, 10) };
+    readonly ComboBox _key = new() { Width = 120, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 10) };
     readonly List<(AssignmentRow Row, CheckBox Selected, CheckBox InName)> _rows = [];
 
     public FaceModel? Result { get; private set; }
@@ -46,6 +47,14 @@ public sealed class ModelEditorWindow : Window
         folderRow.Children.Add(browse);
         folderRow.Children.Add(_folder);
         root.Children.Add(folderRow);
+
+        root.Children.Add(new TextBlock { Text = UiText.Get("picker-key") });
+        _key.Items.Add(new ComboBoxItem { Content = UiText.Get("key-none") });
+        for (var number = 1; number <= 9; number++)
+            _key.Items.Add(new ComboBoxItem { Content = number.ToString() });
+        // Index 0 is "none", so index n is number n.
+        _key.SelectedIndex = initial.Key ?? 0;
+        root.Children.Add(_key);
 
         root.Children.Add(new TextBlock
         {
@@ -111,6 +120,7 @@ public sealed class ModelEditorWindow : Window
             Folder = _folder.Text.Trim(),
             Categories = initial.Categories.ToList(),
             CategoriesInName = initial.CategoriesInName.ToList(),
+            Key = _key.SelectedIndex > 0 ? _key.SelectedIndex : null,
         };
         var rows = _rows.Select(entry =>
         {

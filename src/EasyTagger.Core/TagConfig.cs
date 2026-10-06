@@ -9,6 +9,9 @@ public sealed class FaceModel
     public string Folder { get; set; } = "";
     public List<string> Categories { get; set; } = [];
     public List<string> CategoriesInName { get; set; } = [];
+
+    // Optional number key 1–9 for the picker. It belongs to the model, so it survives reordering.
+    public int? Key { get; set; }
 }
 
 public sealed class ModelCategory

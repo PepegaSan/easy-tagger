@@ -26,16 +26,19 @@ static class NativeHotkey
         virtualKey = 0;
         foreach (var part in (text ?? "").Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
+            // "Strg" and "Umschalt" are the German names the keyboard hint uses.
             switch (part.ToLowerInvariant())
             {
                 case "ctrl":
                 case "control":
+                case "strg":
                     modifiers |= ModControl;
                     break;
                 case "alt":
                     modifiers |= ModAlt;
                     break;
                 case "shift":
+                case "umschalt":
                     modifiers |= ModShift;
                     break;
                 case "win":
@@ -46,6 +49,9 @@ static class NativeHotkey
                         virtualKey = char.ToUpperInvariant(part[0]);
                     else if (Enum.TryParse<Key>(part, true, out var key))
                         virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
+                    else
+                        // An unknown word must not be dropped silently, or the hotkey ends up as something else.
+                        return false;
                     break;
             }
         }
