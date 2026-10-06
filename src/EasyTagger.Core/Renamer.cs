@@ -134,4 +134,5 @@ public static class Renamer
 
 public sealed record RenameResult(string NewStem, bool MatchedPattern);
 
-public sealed record TagOutcome(string SourcePath, string TargetPath, bool MatchedPattern, string Action);
+// Batch groups the files of one picker run, so "undo last" can revert them together.
+public sealed record TagOutcome(string SourcePath, string TargetPath, bool MatchedPattern, string Action, string? Batch = null);

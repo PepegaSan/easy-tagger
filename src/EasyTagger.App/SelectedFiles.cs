@@ -114,7 +114,7 @@ static class SelectedFiles
         {
             paths = ReadClipboardFiles();
             if (paths.Count == 0)
-                LastNote = "Zwischenablage leer. Formate: " + DescribeFormats();
+                LastNote = string.Format(UiText.Get("clipboard-empty"), DescribeFormats());
         }
 
         try
@@ -282,14 +282,14 @@ static class SelectedFiles
         }
 
         if (files.Count == 0 && rejected.Count > 0)
-            LastNote = "Zwischenablage: " + string.Join(" | ", rejected.Take(3));
+            LastNote = string.Format(UiText.Get("clipboard-rejected"), string.Join(" | ", rejected.Take(3)));
         return files;
     }
 
     static string DescribeFormats()
     {
         if (!OpenClipboard(IntPtr.Zero))
-            return "nicht lesbar";
+            return UiText.Get("unreadable");
         try
         {
             var names = new List<string>();

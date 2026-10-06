@@ -53,8 +53,8 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        if (PresentationSource.FromVisual(this) is HwndSource source)
-            source.AddHook(WndProc);
+        // A tray start has no PresentationSource yet at this point, so take the source from the handle.
+        HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WndProc);
         RegisterHotkey();
     }
 
@@ -110,6 +110,7 @@ public partial class MainWindow : Window
         };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(UiText.Get("show"), null, (_, _) => Dispatcher.Invoke(ShowFromTray));
+        menu.Items.Add(UiText.Get("undo-last"), null, (_, _) => Dispatcher.Invoke(UndoLastBatch));
         menu.Items.Add(UiText.Get("exit"), null, (_, _) => Dispatcher.Invoke(ExitApp));
         _tray.ContextMenuStrip = menu;
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowFromTray);
@@ -191,10 +192,11 @@ public partial class MainWindow : Window
         ContentLabel.Text = UiText.Get("content");
         PreviewCaption.Text = UiText.Get("preview");
         ToggleWatchButton.Content = UiText.Get(_watching ? "stop" : "start");
-        if (_tray?.ContextMenuStrip is { Items.Count: >= 2 } menu)
+        if (_tray?.ContextMenuStrip is { Items.Count: >= 3 } menu)
         {
             menu.Items[0].Text = UiText.Get("show");
-            menu.Items[1].Text = UiText.Get("exit");
+            menu.Items[1].Text = UiText.Get("undo-last");
+            menu.Items[2].Text = UiText.Get("exit");
         }
     }
 
@@ -527,8 +529,23 @@ public partial class MainWindow : Window
         if (App.Config.ActiveModel == model.Name)
             App.Config.ActiveModel = editor.Result.Name;
         App.Config.Models[index] = editor.Result;
+        TakeKey(editor.Result);
         Save();
         RefreshAll();
+    }
+
+    // A number key belongs to one model only, so the older holder loses it.
+    void TakeKey(FaceModel keeper)
+    {
+        if (keeper.Key is not int key)
+            return;
+        foreach (var other in App.Config.Models)
+        {
+            if (ReferenceEquals(other, keeper) || other.Key != key)
+                continue;
+            other.Key = null;
+            Log(string.Format(UiText.Get("key-moved"), other.Name, key));
+        }
     }
 
     void OnAddModel(object sender, RoutedEventArgs e)
@@ -542,6 +559,7 @@ public partial class MainWindow : Window
             return;
         }
         App.Config.Models.Add(editor.Result);
+        TakeKey(editor.Result);
         App.Config.ActiveModel = editor.Result.Name;
         Save();
         RefreshAll();
@@ -1104,22 +1122,49 @@ public partial class MainWindow : Window
         }
     }
 
-    void OnUndo(object sender, RoutedEventArgs e)
+    void OnUndo(object sender, RoutedEventArgs e) => UndoLastBatch();
+
+    // Undoes everything the last run changed. Entries without a batch are single steps.
+    void UndoLastBatch()
     {
         if (_undo.Count == 0)
+        {
+            Log(UiText.Get("nothing-to-undo"));
             return;
+        }
         var last = _undo[^1];
-        try
+        var start = _undo.Count - 1;
+        if (last.Batch != null)
+            while (start > 0 && _undo[start - 1].Batch == last.Batch)
+                start--;
+
+        var restored = 0;
+        var failed = new List<TagOutcome>();
+        for (var index = _undo.Count - 1; index >= start; index--)
         {
-            var restored = Renamer.UndoTag(last.SourcePath, last.TargetPath, last.Action);
-            _undo.RemoveAt(_undo.Count - 1);
-            SaveUndo();
-            Log(restored);
+            var entry = _undo[index];
+            try
+            {
+                Log(Renamer.UndoTag(entry.SourcePath, entry.TargetPath, entry.Action));
+                restored++;
+            }
+            catch (Exception ex)
+            {
+                Log(ex.Message);
+                failed.Add(entry);
+            }
         }
-        catch (Exception ex)
-        {
-            Log(ex.Message);
-        }
+        _undo.RemoveRange(start, _undo.Count - start);
+        // Failed entries stay in the history, so a later try can still reach them.
+        failed.Reverse();
+        _undo.InsertRange(start, failed);
+        SaveUndo();
+        Notify(string.Format(UiText.Get("undo-done"), restored));
+    }
+
+    void Notify(string message, Forms.ToolTipIcon icon = Forms.ToolTipIcon.Info)
+    {
+        _tray?.ShowBalloonTip(3500, "Easy Tagger", message, icon);
     }
 
     void OnMove(object sender, RoutedEventArgs e)
@@ -1366,23 +1411,29 @@ public partial class MainWindow : Window
 
     void TagChosenFiles(IReadOnlyList<string> files, FaceModel model)
     {
+        // The picker has already closed, so a dialog would pop up out of nowhere. A tray hint is enough.
         if (string.IsNullOrWhiteSpace(model.Name))
         {
-            Announce(UiText.Get("no-model"));
+            Log(UiText.Get("no-model"));
+            Notify(UiText.Get("no-model"), Forms.ToolTipIcon.Warning);
             return;
         }
         if (App.Config.Action != "rename_only" && string.IsNullOrWhiteSpace(model.Folder))
         {
-            Announce(model.Name + UiText.Get("no-folder"));
+            Log(model.Name + UiText.Get("no-folder"));
+            Notify(model.Name + UiText.Get("no-folder"), Forms.ToolTipIcon.Warning);
             return;
         }
 
         var action = App.Config.Action;
         var reencode = App.Config.ReencodeEnabled;
         var settings = App.Config;
+        var batch = Guid.NewGuid().ToString("N");
         Log(string.Format(UiText.Get("picker-run"), files.Count, model.Name));
         _ = Task.Run(() =>
         {
+            var done = 0;
+            var failed = 0;
             foreach (var path in files)
             {
                 try
@@ -1399,17 +1450,25 @@ public partial class MainWindow : Window
                         finalPath = Encoder.MaybeReencode(outcome.TargetPath, settings, message =>
                             Dispatcher.Invoke(() => Log(message)));
                     }
+                    done++;
                     Dispatcher.Invoke(() =>
                     {
-                        PushUndo(outcome with { TargetPath = finalPath });
+                        PushUndo(outcome with { TargetPath = finalPath, Batch = batch });
                         Log($"{Path.GetFileName(outcome.SourcePath)}  →  {finalPath}");
                     });
                 }
                 catch (Exception ex)
                 {
+                    failed++;
                     Dispatcher.Invoke(() => Log(ex.Message));
                 }
             }
+
+            var summary = failed == 0
+                ? string.Format(UiText.Get("tag-done"), done, model.Name)
+                : string.Format(UiText.Get("tag-done-failed"), done, failed);
+            var icon = failed == 0 ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning;
+            Dispatcher.Invoke(() => Notify(summary, icon));
         });
     }
 
