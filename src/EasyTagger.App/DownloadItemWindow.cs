@@ -52,7 +52,7 @@ public sealed class DownloadItemWindow : Window
             Folder = _folder.Text.Trim();
             DialogResult = true;
         };
-        root.Children.Add(ok);
+        root.Children.Add(Prompt.Buttons(owner, ok));
         Content = root;
         Loaded += (_, _) => _name.Focus();
     }

@@ -12,13 +12,13 @@ public static class Encoder
     };
 
     public static string FindFfmpeg(TagConfig config) =>
-        ResolveTool(config.FfmpegPath, "ffmpeg", [
+        ResolveTool(config.FfmpegPath, "ffmpeg", AppContext.BaseDirectory, [
             @"C:\ffmpeg\ffmpeg.exe",
             @"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
         ]);
 
     public static string FindFfprobe(TagConfig config) =>
-        ResolveTool(config.FfprobePath, "ffprobe", [
+        ResolveTool(config.FfprobePath, "ffprobe", AppContext.BaseDirectory, [
             @"C:\ffmpeg\ffprobe.exe",
             @"C:\Program Files\ffmpeg\bin\ffprobe.exe",
         ]);
@@ -42,14 +42,18 @@ public static class Encoder
         return false;
     }
 
-    public static string MaybeReencode(string path, TagConfig config, Action<string>? log = null)
+    public static string MaybeReencode(string path, TagConfig config, Action<string>? log = null,
+        Action<double>? progress = null, CancellationToken cancel = default)
     {
         if (!config.ReencodeEnabled)
             return path;
-        return ReencodeH264(path, config, log);
+        return ReencodeH264(path, config, log, progress, cancel);
     }
 
-    public static string ReencodeH264(string srcPath, TagConfig config, Action<string>? log = null)
+    // progress gets 0 to 1 while ffmpeg runs. Cancelling stops ffmpeg, removes the half-written
+    // file and leaves the source as it was, then throws OperationCanceledException.
+    public static string ReencodeH264(string srcPath, TagConfig config, Action<string>? log = null,
+        Action<double>? progress = null, CancellationToken cancel = default)
     {
         log ??= static _ => { };
         var ext = Path.GetExtension(srcPath);
@@ -63,19 +67,21 @@ public static class Encoder
         if (ffmpeg.Length == 0)
             throw new InvalidOperationException("ffmpeg nicht gefunden");
 
+        cancel.ThrowIfCancellationRequested();
         var info = Probe(srcPath, config);
         log($"Re-Encode Start: {Path.GetFileName(srcPath)} ({info.Width}x{info.Height} @ {info.Fps.ToString("0.###", CultureInfo.InvariantCulture)} fps)");
 
         var folder = Path.GetDirectoryName(srcPath)!;
         var stem = Path.GetFileNameWithoutExtension(srcPath);
         var tmpPath = Path.Combine(folder, $"{stem}.__reenc__.mp4");
-        var finalPath = Path.Combine(folder, $"{stem}.mp4");
+        var finalPath = OutputPath(srcPath);
+        var replacesSource = string.Equals(Path.GetFullPath(finalPath), Path.GetFullPath(srcPath), StringComparison.OrdinalIgnoreCase);
         if (File.Exists(tmpPath))
             File.Delete(tmpPath);
 
         var args = new List<string>
         {
-            "-y", "-hide_banner", "-loglevel", "error",
+            "-y", "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
             "-i", srcPath,
             "-map", "0:v:0", "-map", "0:a?",
             "-c:v", "libx264",
@@ -97,7 +103,12 @@ public static class Encoder
         }
         args.Add(tmpPath);
 
-        var (code, error) = Run(ffmpeg, args);
+        var (code, error) = RunEncode(ffmpeg, args, info.Duration, progress, cancel);
+        if (cancel.IsCancellationRequested)
+        {
+            TryDelete(tmpPath);
+            cancel.ThrowIfCancellationRequested();
+        }
         if (code != 0 || !File.Exists(tmpPath) || new FileInfo(tmpPath).Length < 1000)
         {
             if (File.Exists(tmpPath))
@@ -122,16 +133,8 @@ public static class Encoder
             TryDelete(srcPath);
         }
 
-        if (!string.Equals(Path.GetFullPath(tmpPath), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase))
-        {
-            if (File.Exists(finalPath))
-                File.Delete(finalPath);
-            File.Move(tmpPath, finalPath);
-        }
-        else
-        {
-            finalPath = tmpPath;
-        }
+        // Only the source itself may be replaced. Any other file under that name belongs to another video.
+        File.Move(tmpPath, finalPath, overwrite: replacesSource);
 
         // Ein gesperrtes Original mit anderer Endung bekommt nach dem
         // Umbenennen einen zweiten Versuch, damit keine Doppelung bleibt.
@@ -143,6 +146,18 @@ public static class Encoder
 
         log($"Re-Encode fertig: {Path.GetFileName(finalPath)}");
         return finalPath;
+    }
+
+    // Where the mp4 goes. An mp4 of a different video can already sit under the same stem,
+    // for example after two long titles were cut to the same 20 characters.
+    internal static string OutputPath(string srcPath)
+    {
+        var folder = Path.GetDirectoryName(Path.GetFullPath(srcPath))!;
+        var stem = Path.GetFileNameWithoutExtension(srcPath);
+        var path = Path.Combine(folder, stem + ".mp4");
+        if (!File.Exists(path) || string.Equals(path, Path.GetFullPath(srcPath), StringComparison.OrdinalIgnoreCase))
+            return path;
+        return Renamer.ResolveCollision(folder, stem, ".mp4");
     }
 
     static void TryDelete(string path)
@@ -192,7 +207,27 @@ public static class Encoder
             (fps, fpsArg) = (25, "25/1");
         var width = video.Value.TryGetProperty("width", out var w) ? w.GetInt32() : 0;
         var height = video.Value.TryGetProperty("height", out var h) ? h.GetInt32() : 0;
-        return new ProbeInfo(fps, fpsArg, width, height);
+        var duration = 0.0;
+        if (root.TryGetProperty("format", out var format) &&
+            format.TryGetProperty("duration", out var length) &&
+            double.TryParse(length.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+            duration = seconds;
+        return new ProbeInfo(fps, fpsArg, width, height, duration);
+    }
+
+    // Reads the seconds done from one line of "-progress" output. ffmpeg writes out_time_us,
+    // and older builds the same microseconds as out_time_ms. "N/A" or a negative start is no value.
+    internal static double? ProgressSeconds(string? line)
+    {
+        var cut = (line ?? "").IndexOf('=');
+        if (cut <= 0)
+            return null;
+        var key = line![..cut].Trim();
+        var value = line[(cut + 1)..].Trim();
+        if (key is not ("out_time_us" or "out_time_ms") ||
+            !long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var micro) || micro < 0)
+            return null;
+        return micro / 1_000_000.0;
     }
 
     static (double Fps, string Argument) Fps(string? rate)
@@ -211,11 +246,14 @@ public static class Encoder
         return (0, "");
     }
 
-    static string ResolveTool(string? configured, string name, IEnumerable<string> fallbacks)
+    internal static string ResolveTool(string? configured, string name, string? appDirectory, IEnumerable<string> fallbacks)
     {
         configured = (configured ?? "").Trim().Trim('"');
         if (configured.Length > 0 && File.Exists(configured))
             return configured;
+        var beside = BesideApp(appDirectory, name);
+        if (beside.Length > 0)
+            return beside;
         var found = FindOnPath(name);
         if (found.Length > 0)
             return found;
@@ -225,6 +263,15 @@ public static class Encoder
                 return path;
         }
         return "";
+    }
+
+    static string BesideApp(string? appDirectory, string name)
+    {
+        if (string.IsNullOrWhiteSpace(appDirectory))
+            return "";
+        var fileName = OperatingSystem.IsWindows() ? name + ".exe" : name;
+        var candidate = Path.Combine(appDirectory, fileName);
+        return File.Exists(candidate) ? Path.GetFullPath(candidate) : "";
     }
 
     static string FindOnPath(string name)
@@ -239,13 +286,32 @@ public static class Encoder
         return "";
     }
 
-    static (int Code, string Error) Run(string file, IReadOnlyList<string> args)
+    static (int Code, string Error) RunEncode(string file, IReadOnlyList<string> args, double duration,
+        Action<double>? progress, CancellationToken cancel)
     {
-        var (code, _, error) = RunCapture(file, args);
-        return (code, error);
+        using var process = Process.Start(Start(file, args)) ?? throw new InvalidOperationException("Prozessstart fehlgeschlagen");
+        using var stop = cancel.Register(() =>
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                // ffmpeg had already finished.
+            }
+        });
+        var error = process.StandardError.ReadToEndAsync();
+        while (process.StandardOutput.ReadLine() is { } line)
+        {
+            if (duration > 0 && progress != null && ProgressSeconds(line) is double done)
+                progress(Math.Clamp(done / duration, 0, 1));
+        }
+        process.WaitForExit();
+        return (process.ExitCode, error.GetAwaiter().GetResult());
     }
 
-    static (int Code, string Output, string Error) RunCapture(string file, IReadOnlyList<string> args)
+    static ProcessStartInfo Start(string file, IReadOnlyList<string> args)
     {
         var start = new ProcessStartInfo
         {
@@ -257,12 +323,19 @@ public static class Encoder
         };
         foreach (var arg in args)
             start.ArgumentList.Add(arg);
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("Prozessstart fehlgeschlagen");
-        var output = process.StandardOutput.ReadToEnd();
-        var error = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        return (process.ExitCode, output, error);
+        return start;
     }
 
-    sealed record ProbeInfo(double Fps, string FpsArgument, int Width, int Height);
+    static (int Code, string Output, string Error) RunCapture(string file, IReadOnlyList<string> args)
+    {
+        using var process = Process.Start(Start(file, args)) ?? throw new InvalidOperationException("Prozessstart fehlgeschlagen");
+        // Both pipes drain at once. Reading them one after the other hangs as soon as
+        // a broken file fills the error pipe while stdout still waits for its end.
+        var error = process.StandardError.ReadToEndAsync();
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, output, error.GetAwaiter().GetResult());
+    }
+
+    sealed record ProbeInfo(double Fps, string FpsArgument, int Width, int Height, double Duration);
 }

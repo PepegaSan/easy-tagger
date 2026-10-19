@@ -23,11 +23,7 @@
   "start_in_tray": false,
   "window_width": 0,
   "window_height": 0,
-  "batch_root": "",
-  "batch_use_folder_names": true,
-  "batch_tag_separator": " -- ",
-  "batch_rules": [],
-  "hotkey": "Ctrl+Alt+E",
+  "hotkey": "Win+Shift+E",
   "active_profile": "models",
   "download_picker": {
     "version": 1,

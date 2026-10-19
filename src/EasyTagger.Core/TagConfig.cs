@@ -12,6 +12,9 @@ public sealed class FaceModel
 
     // Optional number key 1–9 for the picker. It belongs to the model, so it survives reordering.
     public int? Key { get; set; }
+
+    // How often the picker chose this model. The Fav chip lists the most used first.
+    public int Uses { get; set; }
 }
 
 public sealed class ModelCategory
@@ -47,7 +50,18 @@ public sealed class DownloadPicker
     public static DownloadPicker CreateDefault() => DownloadTags.CreateDefault();
 }
 
-public sealed class ProfileState
+// What the picker reads and changes. The active profile keeps it in the config itself and the
+// other one in its saved state; both offer these properties, so the picker can show either.
+public interface IPickerProfile
+{
+    List<FaceModel> Models { get; }
+    List<ModelCategory> ModelCategories { get; }
+    string ActiveModel { get; set; }
+    DownloadPicker DownloadPicker { get; }
+    string Action { get; }
+}
+
+public sealed class ProfileState : IPickerProfile
 {
     public string WatchFolder { get; set; } = "";
     public string Action { get; set; } = "move";
@@ -68,7 +82,7 @@ public sealed class ProfileState
     public string FfprobePath { get; set; } = "";
 }
 
-public sealed class TagConfig
+public sealed class TagConfig : IPickerProfile
 {
     public const string ProfileModels = "models";
     public const string ProfileDownloads = "downloads";
@@ -88,7 +102,8 @@ public sealed class TagConfig
     public string ActiveModel { get; set; } = "";
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }
-    public string Hotkey { get; set; } = "Ctrl+Alt+E";
+    // Not Ctrl+Alt+E: on German keyboards that is AltGr+E, and the hotkey would swallow every €.
+    public string Hotkey { get; set; } = "Win+Shift+E";
     public bool ReencodeEnabled { get; set; }
     public string ReencodeMode { get; set; } = "crf";
     public int ReencodeCrf { get; set; } = 22;
@@ -103,10 +118,9 @@ public sealed class TagConfig
     public double WindowTop { get; set; }
     public double WindowWidth { get; set; }
     public double WindowHeight { get; set; }
-    public string BatchRoot { get; set; } = "";
-    public bool BatchUseFolderNames { get; set; } = true;
-    public string BatchTagSeparator { get; set; } = " -- ";
-    public List<BatchRule> BatchRules { get; set; } = [];
+    // The picker's size once the user resized it. 0 lets it fit its content.
+    public double PickerWidth { get; set; }
+    public double PickerHeight { get; set; }
     public string ModelBatchFolder { get; set; } = "";
     public bool ModelBatchFolderTag { get; set; }
     public DownloadPicker DownloadPicker { get; set; } = DownloadPicker.CreateDefault();
@@ -152,10 +166,6 @@ public sealed class TagConfig
             ActiveProfile = ProfileModels;
         if (Action is not ("move" or "rename_only" or "copy"))
             Action = "move";
-        if (string.IsNullOrWhiteSpace(BatchTagSeparator))
-            BatchTagSeparator = EasyTagger.Core.BatchRules.Separator;
-        BatchRules ??= [];
-        EasyTagger.Core.BatchRules.Normalize(BatchRules);
         Profiles ??= new Dictionary<string, ProfileState>(StringComparer.Ordinal);
         EnsureProfiles();
     }
@@ -179,6 +189,21 @@ public sealed class TagConfig
         Profiles[ActiveProfile] = CaptureState();
         ActiveProfile = profileId;
         ApplyState(Profiles[profileId]);
+    }
+
+    // Either profile's picker data, live: a change lands where that profile keeps it,
+    // so the active profile never has to switch just to tag a few files with the other one.
+    public IPickerProfile PickerProfile(string profileId) =>
+        profileId != ActiveProfile && Profiles.TryGetValue(profileId, out var state) ? state : this;
+
+    // Action and re-encoding settings of a profile, as a config the tagging code can use directly.
+    public TagConfig SettingsFor(string profileId)
+    {
+        if (profileId == ActiveProfile || !Profiles.TryGetValue(profileId, out var state))
+            return this;
+        var settings = new TagConfig();
+        settings.ApplyState(state);
+        return settings;
     }
 
     public FaceModel? ActiveFaceModel()
@@ -270,6 +295,8 @@ public sealed class TagConfig
             Folder = model.Folder,
             Categories = model.Categories.ToList(),
             CategoriesInName = model.CategoriesInName.ToList(),
+            Key = model.Key,
+            Uses = model.Uses,
         }).ToList();
 
     static DownloadPicker ClonePicker(DownloadPicker picker)

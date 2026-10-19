@@ -38,21 +38,39 @@ public static class Prompt
         var panel = new StackPanel { Margin = new Thickness(16) };
         panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(input);
-        panel.Children.Add(ok);
+        panel.Children.Add(Buttons(owner, ok));
         window.Content = panel;
         window.Loaded += (_, _) => input.Focus();
         return window.ShowDialog() == true ? result : null;
     }
 
+    // OK plus a Cancel that Esc also triggers, the way ModelEditorWindow already works.
+    public static StackPanel Buttons(Window owner, Button ok)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        row.Children.Add(ok);
+        row.Children.Add(new Button
+        {
+            Content = UiText.Get("cancel"),
+            Style = (Style)owner.FindResource("Chip"),
+            IsCancel = true,
+        });
+        return row;
+    }
+
     static readonly Guid FolderDialogId = new("c3a1e6b4-7d28-4f5a-9b16-2e8d4c0a91f7");
 
-    public static void ChooseFolder(Window owner, string? current, Action<string> apply, Action? whenEmpty = null)
+    public static void ChooseFolder(Window owner, string? current, Action<string> apply, Action? whenEmpty = null, string? title = null)
     {
         // Der Dialog darf nicht im selben Mausklick aufgehen. Sonst trifft
         // das Loslassen den Dialog und er schließt sich sofort wieder.
         owner.Dispatcher.BeginInvoke(() =>
         {
-            var chosen = ShowFolder(owner, current);
+            var chosen = ShowFolder(owner, current, title);
             if (!string.IsNullOrWhiteSpace(chosen))
                 apply(chosen);
             else
@@ -60,11 +78,11 @@ public static class Prompt
         }, DispatcherPriority.Input);
     }
 
-    static string? ShowFolder(Window owner, string? current)
+    static string? ShowFolder(Window owner, string? current, string? title)
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = UiText.Get("pick-folder"),
+            Title = title ?? UiText.Get("pick-folder"),
             ClientGuid = FolderDialogId,
             DefaultDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };

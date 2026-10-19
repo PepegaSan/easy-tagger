@@ -58,4 +58,27 @@ static class NativeHotkey
 
         return virtualKey != 0;
     }
+
+    // Writes a pressed combination the way TryParse reads it. A lone modifier gives "", and so does
+    // a key that typing needs: Backspace or Shift+E as a global hotkey would swallow that key everywhere.
+    public static string Format(ModifierKeys modifiers, Key key)
+    {
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.None)
+            return "";
+        var chord = modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows);
+        if (chord == ModifierKeys.None && key is not (>= Key.F1 and <= Key.F24))
+            return "";
+        var parts = new List<string>();
+        if (modifiers.HasFlag(ModifierKeys.Control))
+            parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Alt))
+            parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Shift))
+            parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Windows))
+            parts.Add("Win");
+        parts.Add(key is >= Key.D0 and <= Key.D9 ? ((char)('0' + (key - Key.D0))).ToString() : key.ToString());
+        return string.Join("+", parts);
+    }
 }

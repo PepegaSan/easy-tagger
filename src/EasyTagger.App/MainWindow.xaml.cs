@@ -28,6 +28,15 @@ public partial class MainWindow : Window
     const int UndoLimit = 30;
     PickerWindow? _picker;
 
+    // One ffmpeg at a time. "Tag existing" with twenty files used to start twenty at once.
+    // Each one already uses every core, so running them side by side only slows them all down.
+    static readonly SemaphoreSlim EncodeGate = new(1, 1);
+    // Cancel stops the running encode and every queued one. A fresh source then serves the next files.
+    CancellationTokenSource _encodeCancel = new();
+    int _encodes;
+    string _encodeName = "";
+    int _encodePercent = -1;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -55,16 +64,33 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         // A tray start has no PresentationSource yet at this point, so take the source from the handle.
         HwndSource.FromHwnd(new WindowInteropHelper(this).Handle)?.AddHook(WndProc);
-        RegisterHotkey();
+        if (!RegisterHotkey())
+        {
+            // A tray start shows no window, so the log alone would go unseen.
+            var message = string.Format(UiText.Get("hotkey-failed"), App.Config.Hotkey);
+            Log(message);
+            Notify(message, Forms.ToolTipIcon.Warning);
+        }
+    }
+
+    public void ReportError(Exception ex)
+    {
+        var message = string.Format(UiText.Get("error"), ex.Message);
+        Log(message);
+        Notify(message, Forms.ToolTipIcon.Error);
     }
 
     protected override void OnClosing(CancelEventArgs e)
     {
         SavePlacement();
-        if (!_exit && App.Config.CloseToTray)
+        if (!_exit)
         {
             e.Cancel = true;
-            Hide();
+            if (App.Config.CloseToTray)
+                Hide();
+            else
+                // Close cannot be called again while closing, and ExitApp may still ask about an encode.
+                Dispatcher.BeginInvoke(ExitApp);
             return;
         }
 
@@ -87,8 +113,20 @@ public partial class MainWindow : Window
         System.Windows.Application.Current.Shutdown();
     }
 
-    public void ExitApp()
+    public async void ExitApp()
     {
+        if (_encodes > 0)
+        {
+            ShowFromTray();
+            if (MessageBox.Show(this, UiText.Get("encode-exit"), "Easy Tagger",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+            _encodeCancel.Cancel();
+            // ffmpeg is gone at once. The worker still removes the half-written file, so give it a moment.
+            var waited = System.Diagnostics.Stopwatch.StartNew();
+            while (_encodes > 0 && waited.Elapsed < TimeSpan.FromSeconds(5))
+                await Task.Delay(100);
+        }
         _exit = true;
         Close();
     }
@@ -139,7 +177,12 @@ public partial class MainWindow : Window
         NavModelsButton.Content = UiText.Get("models");
         NavDownloadsButton.Content = UiText.Get("downloads");
         NavBatchButton.Content = UiText.Get("batch");
+        NavSettingsButton.Content = UiText.Get("settings");
         NavLogButton.Content = UiText.Get("log");
+        SettingsTitle.Text = UiText.Get("settings-title");
+        HotkeyLabel.Text = UiText.Get("hotkey-label");
+        CancelEncodeButton.Content = UiText.Get("cancel");
+        PaintEncodeStatus();
         WatchTitle.Text = UiText.Get("watch-title");
         ModelsTitle.Text = UiText.Get("models-title");
         DownloadsTitle.Text = UiText.Get("downloads-title");
@@ -150,7 +193,6 @@ public partial class MainWindow : Window
         ActionMoveButton.Content = UiText.Get("move");
         ActionCopyButton.Content = UiText.Get("copy");
         ActionRenameButton.Content = UiText.Get("rename");
-        TypeFolderLabel.Text = UiText.Get("type-folder");
         BrowseTypeFolderButton.Content = UiText.Get("browse");
         EncodeTitle.Text = UiText.Get("encode-title");
         EncodeSummary.Text = UiText.Get("encode-summary");
@@ -166,7 +208,10 @@ public partial class MainWindow : Window
         EncodeFfmpegLabel.Text = UiText.Get("encode-ffmpeg");
         EncodeFfprobeLabel.Text = UiText.Get("encode-ffprobe");
         SaveHotkeyButton.Content = UiText.Get("hotkey");
-        FinalNamesBox.Content = UiText.Get("final");
+        HotkeyBox.ToolTip = UiText.Get("hotkey-hint");
+        // A single "_" in a check box label marks a shortcut key and disappears, so it is doubled.
+        FinalNamesBox.Content = UiText.Get("final").Replace("_", "__");
+        FinalNamesBox.ToolTip = UiText.Get("final-hint");
         ProcessExistingBox.Content = UiText.Get("process-existing");
         CloseToTrayBox.Content = UiText.Get("tray");
         StartInTrayBox.Content = UiText.Get("start-tray");
@@ -187,10 +232,19 @@ public partial class MainWindow : Window
         AddTypeButton.Content = UiText.Get("add-type");
         AddTargetButton.Content = UiText.Get("add-target");
         AddContentButton.Content = UiText.Get("add-content");
-        TypeLabel.Text = UiText.Get("type");
-        TargetLabel.Text = UiText.Get("target");
-        ContentLabel.Text = UiText.Get("content");
+        DownloadsIntro.Text = UiText.Get("downloads-intro");
+        TypeLabel.Text = UiText.Get("step-type");
+        TypeHint.Text = UiText.Get("type-hint");
+        TargetLabel.Text = UiText.Get("step-target");
+        TargetHint.Text = UiText.Get("target-hint");
+        ContentLabel.Text = UiText.Get("step-content");
+        ContentHint.Text = UiText.Get("content-hint");
         PreviewCaption.Text = UiText.Get("preview");
+        ResultNameLabel.Text = UiText.Get("result-name");
+        ResultFolderLabel.Text = UiText.Get("result-folder");
+        TitleNote.Text = UiText.Get("title-note");
+        DownloadsEditHint.Text = UiText.Get("downloads-edit-hint");
+        WatchHint.Text = UiText.Get("watch-hint");
         ToggleWatchButton.Content = UiText.Get(_watching ? "stop" : "start");
         if (_tray?.ContextMenuStrip is { Items.Count: >= 3 } menu)
         {
@@ -240,6 +294,7 @@ public partial class MainWindow : Window
         var showWatch = config.ActiveProfile != TagConfig.ProfileModels;
         var watchVisibility = showWatch ? Visibility.Visible : Visibility.Collapsed;
         WatchFolderRow.Visibility = watchVisibility;
+        WatchHint.Visibility = watchVisibility;
         ToggleWatchButton.Visibility = watchVisibility;
         TagExistingButton.Visibility = watchVisibility;
         FinalNamesBox.Visibility = watchVisibility;
@@ -314,18 +369,101 @@ public partial class MainWindow : Window
             _ => "model-now-move",
         });
         StatusHotkeyText.Text = App.Config.Hotkey;
-        PreviewNameText.Text = DownloadTags.SelectionName(App.Config.DownloadPicker);
-        PreviewFolderText.Text = DownloadTags.SelectionFolder(App.Config.DownloadPicker);
-        var selectedType = App.Config.DownloadPicker.Types
-            .FirstOrDefault(item => item.Id == App.Config.DownloadPicker.LastSelection.Type);
-        var baseFolder = selectedType?.BaseFolder ?? "";
-        if (TypeFolderBox.Text != baseFolder)
+        ShowDownloadResult();
+    }
+
+    // Spells out how the three choices become a name and a folder, piece by piece,
+    // and says it plainly when a piece is missing instead of leaving a blank.
+    void ShowDownloadResult()
+    {
+        var picker = App.Config.DownloadPicker;
+        var type = picker.Types.FirstOrDefault(item => item.Id == picker.LastSelection.Type);
+        var target = picker.Targets.FirstOrDefault(item => item.Id == picker.LastSelection.Target);
+        var typeName = type?.Label ?? "";
+        var targetName = target?.Label ?? "";
+        var moves = App.Config.Action != "rename_only";
+        var noBase = type == null || string.IsNullOrWhiteSpace(type.BaseFolder);
+
+        SetQuietly(TypeFolderBox, type?.BaseFolder ?? "");
+        SetQuietly(TargetFolderBox, target?.FolderName ?? "");
+        TypeFolderBox.IsEnabled = type != null;
+        TargetFolderBox.IsEnabled = target != null;
+        TypeFolderLabel.Text = string.Format(UiText.Get("type-folder-of"), typeName);
+        TargetFolderLabel.Text = string.Format(UiText.Get("target-folder-of"), targetName);
+        TypeFolderWarning.Text = string.Format(UiText.Get("type-folder-missing"), typeName);
+        TypeFolderWarning.Visibility = type != null && noBase && moves ? Visibility.Visible : Visibility.Collapsed;
+
+        PreviewNamePanel.Children.Clear();
+        var title = Segment(UiText.Get("seg-title") + "_", "", muted: true);
+        // The real name has no space after the underscore, so neither does the picture of it.
+        title.Margin = new Thickness(0, 0, 1, 4);
+        PreviewNamePanel.Children.Add(title);
+        if (type != null)
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(type)), UiText.Get("type")));
+        if (target != null)
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(target)), UiText.Get("target")));
+        foreach (var content in picker.Contents.Where(item => picker.LastSelection.Contents.Contains(item.Id)))
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(content)), UiText.Get("content")));
+
+        PreviewFolderPanel.Children.Clear();
+        if (!moves)
+            PreviewFolderPanel.Children.Add(Note(UiText.Get("result-rename-only"), "Muted"));
+        else if (type == null || target == null)
+            PreviewFolderPanel.Children.Add(Note(UiText.Get("result-incomplete"), "SignalRed"));
+        else if (noBase)
+            PreviewFolderPanel.Children.Add(Note(string.Format(UiText.Get("result-no-folder"), typeName), "SignalRed"));
+        else
         {
-            _suppress = true;
-            TypeFolderBox.Text = baseFolder;
-            _suppress = false;
+            PreviewFolderPanel.Children.Add(Segment(type.BaseFolder, string.Format(UiText.Get("seg-base"), typeName)));
+            var child = string.IsNullOrWhiteSpace(target.FolderName) ? target.Id : target.FolderName;
+            PreviewFolderPanel.Children.Add(Segment("\\" + child, string.Format(UiText.Get("seg-sub"), targetName)));
         }
     }
+
+    void SetQuietly(TextBox box, string text)
+    {
+        if (box.Text == text)
+            return;
+        _suppress = true;
+        box.Text = text;
+        _suppress = false;
+    }
+
+    // One piece of the result with a line and a caption under it, naming the step it came from.
+    FrameworkElement Segment(string text, string caption, bool muted = false)
+    {
+        var piece = new StackPanel { Margin = new Thickness(0, 0, 8, 4) };
+        piece.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource(muted ? "Muted" : "Text"),
+            MaxWidth = 620,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (caption.Length > 0)
+        {
+            piece.Children.Add(new Border
+            {
+                BorderBrush = (Brush)FindResource("FieldBorder"),
+                BorderThickness = new Thickness(0, 2, 0, 0),
+                Margin = new Thickness(0, 3, 0, 2),
+            });
+            piece.Children.Add(new TextBlock { Text = caption, FontSize = 11, Foreground = (Brush)FindResource("Muted") });
+        }
+        return piece;
+    }
+
+    TextBlock Note(string text, string brush) => new()
+    {
+        Text = text,
+        // A wrap panel measures without a width limit, so the text needs its own to wrap.
+        MaxWidth = 820,
+        FontWeight = FontWeights.SemiBold,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = (Brush)FindResource(brush),
+    };
 
     void BuildCategories()
     {
@@ -400,6 +538,9 @@ public partial class MainWindow : Window
             var remove = new MenuItem { Header = UiText.Get("remove") };
             remove.Click += (_, _) =>
             {
+                if (MessageBox.Show(this, string.Format(UiText.Get("model-remove"), current.Name), "Easy Tagger",
+                        MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                    return;
                 App.Config.Models.Remove(current);
                 if (App.Config.ActiveModel == current.Name)
                     App.Config.ActiveModel = App.Config.Models.FirstOrDefault()?.Name ?? "";
@@ -443,12 +584,13 @@ public partial class MainWindow : Window
                 BuildDownloads();
                 UpdateStatus();
             };
-            AttachItemMenu(button, () => EditDownload("contents", current), () =>
+            AttachItemMenu(button, current.Label, () => EditDownload("contents", current), () =>
             {
                 DownloadTags.RemoveItem(picker, "contents", current.Id);
                 Save();
                 RefreshAll();
             });
+            button.ToolTip = UiText.Get("chip-edit-hint");
             ContentPanel.Children.Add(button);
         }
     }
@@ -461,12 +603,17 @@ public partial class MainWindow : Window
             var current = item;
             var button = MakeChip(current.Label, current.Id == selectedId);
             button.Click += (_, _) => choose(current.Id);
-            AttachItemMenu(button, () => EditDownload(group, current), () =>
+            AttachItemMenu(button, current.Label, () => EditDownload(group, current), () =>
             {
                 DownloadTags.RemoveItem(App.Config.DownloadPicker, group, current.Id);
                 Save();
                 RefreshAll();
             });
+            // The folder a chip stands for is visible before choosing it.
+            var folder = group == "types"
+                ? string.Format(UiText.Get("tip-base"), string.IsNullOrWhiteSpace(current.BaseFolder) ? "–" : current.BaseFolder)
+                : string.Format(UiText.Get("tip-sub"), current.FolderName);
+            button.ToolTip = folder + Environment.NewLine + UiText.Get("chip-edit-hint");
             panel.Children.Add(button);
         }
     }
@@ -478,13 +625,18 @@ public partial class MainWindow : Window
         return button;
     }
 
-    static void AttachItemMenu(Button button, Action edit, Action remove)
+    void AttachItemMenu(Button button, string label, Action edit, Action remove)
     {
         var menu = new ContextMenu();
         var editItem = new MenuItem { Header = UiText.Get("edit") };
         editItem.Click += (_, _) => edit();
         var item = new MenuItem { Header = UiText.Get("remove") };
-        item.Click += (_, _) => remove();
+        item.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, string.Format(UiText.Get("item-remove"), label), "Easy Tagger",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                remove();
+        };
         menu.Items.Add(editItem);
         menu.Items.Add(item);
         button.ContextMenu = menu;
@@ -679,8 +831,10 @@ public partial class MainWindow : Window
         var action = App.Config.Action;
         var reencode = App.Config.ReencodeEnabled;
         var settings = App.Config;
+        var batch = Guid.NewGuid().ToString("N");
+        var cancel = _encodeCancel.Token;
         SetModelFolderBusy(true);
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             var done = new List<TagOutcome>();
             var skipped = 0;
@@ -691,17 +845,14 @@ public partial class MainWindow : Window
                     if (!File.Exists(plan.SourcePath) || FileScan.IsFileInUse(plan.SourcePath))
                     {
                         skipped++;
-                        Dispatcher.Invoke(() => Log(string.Format(UiText.Get("waiting-locked"), Path.GetFileName(plan.SourcePath))));
+                        Dispatcher.Invoke(() => Log(string.Format(UiText.Get("skipped-locked"), Path.GetFileName(plan.SourcePath))));
                         continue;
                     }
                     var outcome = Renamer.ApplyTag(plan.SourcePath, model, action);
                     var finalPath = outcome.TargetPath;
                     if (reencode)
-                    {
-                        finalPath = Encoder.MaybeReencode(outcome.TargetPath, settings, message =>
-                            Dispatcher.Invoke(() => Log(message)));
-                    }
-                    done.Add(outcome with { TargetPath = finalPath });
+                        finalPath = await ReencodeAsync(outcome.TargetPath, settings, cancel);
+                    done.Add(outcome with { TargetPath = finalPath, Batch = batch });
                     Dispatcher.Invoke(() => Log($"{Path.GetFileName(outcome.SourcePath)}  →  {finalPath}"));
                 }
                 catch (Exception ex)
@@ -722,8 +873,7 @@ public partial class MainWindow : Window
             Log(task.Exception?.GetBaseException().Message ?? "model");
             return;
         }
-        foreach (var outcome in task.Result.Done)
-            PushUndo(outcome);
+        PushUndo(task.Result.Done);
         var message = string.Format(UiText.Get("model-folder-done"), task.Result.Done.Count, task.Result.Skipped);
         Log(message);
         ShowModelFolderPlan(announce: false);
@@ -791,12 +941,24 @@ public partial class MainWindow : Window
 
     void AddDownloadItem(string group, bool askFolder)
     {
-        var label = Prompt.Ask(this, UiText.Get("tag-name"), UiText.Get("name"));
+        var question = group switch
+        {
+            "types" => "add-type-name",
+            "targets" => "add-target-name",
+            _ => "add-content-name",
+        };
+        var label = Prompt.Ask(this, UiText.Get(group switch
+        {
+            "types" => "add-type",
+            "targets" => "add-target",
+            _ => "add-content",
+        }), UiText.Get(question));
         if (string.IsNullOrWhiteSpace(label))
             return;
         if (askFolder)
         {
-            Prompt.ChooseFolder(this, "", chosen => Store(chosen), () => Store(""));
+            Prompt.ChooseFolder(this, "", chosen => Store(chosen), () => Store(""),
+                string.Format(UiText.Get("type-folder-pick"), label.Trim()));
             return;
         }
         Store("");
@@ -862,6 +1024,7 @@ public partial class MainWindow : Window
             ToggleSection(BatchBody, BatchChevron);
         BatchSection.BringIntoView();
     }
+    void OnNavSettings(object sender, RoutedEventArgs e) => SettingsSection.BringIntoView();
     void OnNavLog(object sender, RoutedEventArgs e) => LogSection.BringIntoView();
 
     void OnBrowseFolder(object sender, RoutedEventArgs e)
@@ -945,10 +1108,12 @@ public partial class MainWindow : Window
         }
 
         Log(string.Format(UiText.Get("tag-count"), files.Count));
+        // One run, so "undo" takes all of these files back together.
+        var batch = Guid.NewGuid().ToString("N");
         foreach (var path in files)
         {
             _ignoredAtStart.Remove(path);
-            TryTag(path);
+            TryTag(path, batch);
         }
     }
 
@@ -1052,7 +1217,7 @@ public partial class MainWindow : Window
             _pending.Remove(key);
     }
 
-    void TryTag(string path)
+    void TryTag(string path, string? batch = null)
     {
         var model = App.Config.ActiveFaceModel();
         if (model == null || string.IsNullOrWhiteSpace(model.Name))
@@ -1073,10 +1238,12 @@ public partial class MainWindow : Window
         }
         try
         {
-            var outcome = Renamer.ApplyTag(path, model, App.Config.Action);
+            var outcome = Renamer.ApplyTag(path, model, App.Config.Action) with { Batch = batch };
             // Die Quelle bleibt beim Kopieren liegen. Ohne diese Marke nimmt
             // der nächste Durchlauf sie erneut und legt eine weitere Kopie an.
             _ignoredAtStart.Add(path);
+            // "Rename only" leaves the result in the watched folder; it is done, not new.
+            _ignoredAtStart.Add(outcome.TargetPath);
             Log($"{Path.GetFileName(outcome.SourcePath)}  →  {outcome.TargetPath}");
             if (!App.Config.ReencodeEnabled)
             {
@@ -1085,23 +1252,16 @@ public partial class MainWindow : Window
             }
 
             var settings = App.Config;
-            _ = Task.Run(() =>
+            var cancel = _encodeCancel.Token;
+            _ = Task.Run(async () =>
             {
-                var finalPath = outcome.TargetPath;
-                try
-                {
-                    finalPath = Encoder.MaybeReencode(outcome.TargetPath, settings, message =>
-                        Dispatcher.Invoke(() => Log(message)));
-                }
-                catch (Exception ex)
-                {
-                    Dispatcher.Invoke(() => Log(ex.Message));
-                }
+                var finalPath = await ReencodeAsync(outcome.TargetPath, settings, cancel);
 
                 // Der Rückgängig-Eintrag entsteht erst jetzt, mit dem Pfad,
                 // der nach der Neukodierung wirklich auf der Platte liegt.
                 Dispatcher.Invoke(() =>
                 {
+                    _ignoredAtStart.Add(finalPath);
                     if (!string.Equals(finalPath, outcome.TargetPath, StringComparison.OrdinalIgnoreCase))
                         Log($"{Path.GetFileName(outcome.TargetPath)}  →  {finalPath}");
                     PushUndo(outcome with { TargetPath = finalPath });
@@ -1133,31 +1293,25 @@ public partial class MainWindow : Window
             return;
         }
         var last = _undo[^1];
-        var start = _undo.Count - 1;
-        if (last.Batch != null)
-            while (start > 0 && _undo[start - 1].Batch == last.Batch)
-                start--;
+        // Re-encoded files of one run finish at different times, so the run is not always one block.
+        var run = last.Batch == null ? [last] : _undo.Where(entry => entry.Batch == last.Batch).ToList();
 
         var restored = 0;
-        var failed = new List<TagOutcome>();
-        for (var index = _undo.Count - 1; index >= start; index--)
+        for (var index = run.Count - 1; index >= 0; index--)
         {
-            var entry = _undo[index];
+            var entry = run[index];
             try
             {
                 Log(Renamer.UndoTag(entry.SourcePath, entry.TargetPath, entry.Action));
+                _undo.Remove(entry);
                 restored++;
             }
             catch (Exception ex)
             {
+                // A failed entry stays in the history, so a later try can still reach it.
                 Log(ex.Message);
-                failed.Add(entry);
             }
         }
-        _undo.RemoveRange(start, _undo.Count - start);
-        // Failed entries stay in the history, so a later try can still reach them.
-        failed.Reverse();
-        _undo.InsertRange(start, failed);
         SaveUndo();
         Notify(string.Format(UiText.Get("undo-done"), restored));
     }
@@ -1204,6 +1358,20 @@ public partial class MainWindow : Window
     }
 
     void OnTypeFolderLostFocus(object sender, RoutedEventArgs e) => SaveTypeFolder();
+
+    void OnTargetFolderLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppress)
+            return;
+        var picker = App.Config.DownloadPicker;
+        var target = picker.Targets.FirstOrDefault(item => item.Id == picker.LastSelection.Target);
+        if (target == null)
+            return;
+        // Left empty, saving falls back to the target's own id as the folder name.
+        target.FolderName = TargetFolderBox.Text.Trim();
+        Save();
+        UpdateStatus();
+    }
 
     void SaveTypeFolder()
     {
@@ -1291,10 +1459,34 @@ public partial class MainWindow : Window
 
     void OnSaveHotkey(object sender, RoutedEventArgs e)
     {
+        var previous = App.Config.Hotkey;
         App.Config.Hotkey = HotkeyBox.Text.Trim();
+        if (!RegisterHotkey())
+        {
+            var message = string.Format(UiText.Get("hotkey-failed"), App.Config.Hotkey);
+            // The old hotkey comes back, so a typo never leaves the program without one.
+            App.Config.Hotkey = previous;
+            HotkeyBox.Text = previous;
+            RegisterHotkey();
+            Announce(message);
+            return;
+        }
         Save();
-        RegisterHotkey();
         UpdateStatus();
+        Log(string.Format(UiText.Get("hotkey-saved"), App.Config.Hotkey));
+    }
+
+    // The field takes the pressed combination, so nobody has to know how to spell "Ctrl+Alt+E".
+    void OnHotkeyKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        var modifiers = System.Windows.Input.Keyboard.Modifiers;
+        if (key == System.Windows.Input.Key.Tab && (modifiers & ~System.Windows.Input.ModifierKeys.Shift) == 0)
+            return;
+        e.Handled = true;
+        var text = NativeHotkey.Format(modifiers, key);
+        if (text.Length > 0)
+            HotkeyBox.Text = text;
     }
 
     void OnStartInTray(object sender, RoutedEventArgs e)
@@ -1348,15 +1540,14 @@ public partial class MainWindow : Window
         Save();
     }
 
-    void RegisterHotkey()
+    bool RegisterHotkey()
     {
         var handle = new WindowInteropHelper(this).Handle;
         if (handle == IntPtr.Zero)
-            return;
+            return false;
         UnregisterHotkey();
-        if (!NativeHotkey.TryParse(App.Config.Hotkey, out var modifiers, out var key) ||
-            !NativeHotkey.RegisterHotKey(handle, NativeHotkey.Id, modifiers, key))
-            Log(UiText.Get("hotkey-failed"));
+        return NativeHotkey.TryParse(App.Config.Hotkey, out var modifiers, out var key) &&
+               NativeHotkey.RegisterHotKey(handle, NativeHotkey.Id, modifiers, key);
     }
 
     void UnregisterHotkey()
@@ -1371,7 +1562,8 @@ public partial class MainWindow : Window
         if (msg == NativeHotkey.WmHotkey)
         {
             handled = true;
-            Dispatcher.BeginInvoke(OpenPicker);
+            var foreground = SelectedFiles.ForegroundNow();
+            Dispatcher.BeginInvoke(() => OpenPicker(foreground));
         }
         else if (SingleInstance.ShowMessage != 0 && (uint)msg == SingleInstance.ShowMessage)
         {
@@ -1381,14 +1573,14 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    void OpenPicker()
+    void OpenPicker(IntPtr foregroundAtHotkey = default)
     {
         if (_picker != null)
         {
             _picker.Activate();
             return;
         }
-        var files = SelectedFiles.Capture();
+        var files = SelectedFiles.Capture(foregroundAtHotkey);
         if (files.Count == 0)
         {
             var message = UiText.Get("no-selection");
@@ -1398,8 +1590,17 @@ public partial class MainWindow : Window
             _tray?.ShowBalloonTip(3500, "Easy Tagger", message, Forms.ToolTipIcon.Warning);
             return;
         }
+        ShowPicker(files);
+    }
 
-        _picker = new PickerWindow(App.Config, files, model => TagChosenFiles(files, model));
+    void ShowPicker(IReadOnlyList<string> files)
+    {
+        if (_picker != null)
+        {
+            _picker.Activate();
+            return;
+        }
+        _picker = new PickerWindow(App.Config, files, (model, profile) => TagChosenFiles(files, model, profile));
         _picker.Closed += (_, _) =>
         {
             _picker = null;
@@ -1409,8 +1610,39 @@ public partial class MainWindow : Window
         _picker.Show();
     }
 
-    void TagChosenFiles(IReadOnlyList<string> files, FaceModel model)
+    // Files dropped anywhere on the window go to the same picker the hotkey opens. Preview events,
+    // because a text box would otherwise take the drop for itself.
+    void OnPreviewDragOver(object sender, DragEventArgs e)
     {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+            return;
+        // Copy, never Move: on Move, Explorer may delete the source once the drop returns.
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    void OnPreviewDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths)
+            return;
+        e.Handled = true;
+        var files = paths.Where(File.Exists).Select(Path.GetFullPath).ToList();
+        if (files.Count == 0)
+        {
+            Log(UiText.Get("no-selection"));
+            return;
+        }
+        // Explorer waits until Drop returns, so the picker opens right after it.
+        Dispatcher.BeginInvoke(() => ShowPicker(files));
+    }
+
+    // profile is the picker tab the choice came from; its action and re-encoding apply,
+    // even when the main window shows the other profile.
+    void TagChosenFiles(IReadOnlyList<string> files, FaceModel model, string profile)
+    {
+        var settings = App.Config.SettingsFor(profile);
+        var action = settings.Action;
+        var reencode = settings.ReencodeEnabled;
         // The picker has already closed, so a dialog would pop up out of nowhere. A tray hint is enough.
         if (string.IsNullOrWhiteSpace(model.Name))
         {
@@ -1418,19 +1650,17 @@ public partial class MainWindow : Window
             Notify(UiText.Get("no-model"), Forms.ToolTipIcon.Warning);
             return;
         }
-        if (App.Config.Action != "rename_only" && string.IsNullOrWhiteSpace(model.Folder))
+        if (action != "rename_only" && string.IsNullOrWhiteSpace(model.Folder))
         {
             Log(model.Name + UiText.Get("no-folder"));
             Notify(model.Name + UiText.Get("no-folder"), Forms.ToolTipIcon.Warning);
             return;
         }
 
-        var action = App.Config.Action;
-        var reencode = App.Config.ReencodeEnabled;
-        var settings = App.Config;
         var batch = Guid.NewGuid().ToString("N");
+        var cancel = _encodeCancel.Token;
         Log(string.Format(UiText.Get("picker-run"), files.Count, model.Name));
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             var done = 0;
             var failed = 0;
@@ -1446,10 +1676,7 @@ public partial class MainWindow : Window
                     var outcome = Renamer.ApplyTag(path, model, action);
                     var finalPath = outcome.TargetPath;
                     if (reencode)
-                    {
-                        finalPath = Encoder.MaybeReencode(outcome.TargetPath, settings, message =>
-                            Dispatcher.Invoke(() => Log(message)));
-                    }
+                        finalPath = await ReencodeAsync(outcome.TargetPath, settings, cancel);
                     done++;
                     Dispatcher.Invoke(() =>
                     {
@@ -1472,16 +1699,119 @@ public partial class MainWindow : Window
         });
     }
 
+    // Waits for the file before it without holding a thread, so a long queue costs nothing.
+    // Never throws: a file that could not be encoded stays tagged as it is, and undo still knows it.
+    // The token comes from the start of the run, so "cancel" also skips the files the run has not reached.
+    async Task<string> ReencodeAsync(string path, TagConfig settings, CancellationToken cancel)
+    {
+        var name = Path.GetFileName(path);
+        _ = Dispatcher.BeginInvoke(() => CountEncode(+1));
+        try
+        {
+            await EncodeGate.WaitAsync(cancel).ConfigureAwait(false);
+            try
+            {
+                var shown = -1;
+                return Encoder.MaybeReencode(path, settings,
+                    message => Dispatcher.Invoke(() => Log(message)),
+                    fraction =>
+                    {
+                        var percent = (int)(fraction * 100);
+                        if (percent == shown)
+                            return;
+                        shown = percent;
+                        _ = Dispatcher.BeginInvoke(() => ShowEncodeProgress(name, percent));
+                    },
+                    cancel);
+            }
+            finally
+            {
+                EncodeGate.Release();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _ = Dispatcher.BeginInvoke(() => Log(string.Format(UiText.Get("encode-cancelled"), name)));
+            return path;
+        }
+        catch (Exception ex)
+        {
+            _ = Dispatcher.BeginInvoke(() => Log(ex.Message));
+            return path;
+        }
+        finally
+        {
+            _ = Dispatcher.BeginInvoke(() => CountEncode(-1));
+        }
+    }
+
+    void CountEncode(int change)
+    {
+        _encodes = Math.Max(0, _encodes + change);
+        if (_encodes == 0)
+        {
+            _encodeName = "";
+            _encodePercent = -1;
+        }
+        PaintEncodeStatus();
+    }
+
+    void ShowEncodeProgress(string name, int percent)
+    {
+        _encodeName = name;
+        _encodePercent = percent;
+        PaintEncodeStatus();
+    }
+
+    // The chip next to the status shows the running file, and the tray tooltip the percentage,
+    // so a long encode is visible even while the window sits in the tray.
+    void PaintEncodeStatus()
+    {
+        EncodeStatusChip.Visibility = _encodes > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var text = _encodePercent < 0
+            ? UiText.Get("encode-starting")
+            : string.Format(UiText.Get("encode-progress"), _encodeName, _encodePercent);
+        if (_encodes > 1)
+            text += string.Format(UiText.Get("encode-waiting"), _encodes - 1);
+        EncodeStatusText.Text = text;
+        EncodeStatusChip.ToolTip = _encodeName.Length > 0 ? _encodeName : null;
+        if (_tray != null)
+            _tray.Text = _encodes > 0 && _encodePercent >= 0 ? $"Easy Tagger · {_encodePercent} %" : "Easy Tagger";
+    }
+
+    void OnCancelEncode(object sender, RoutedEventArgs e)
+    {
+        _encodeCancel.Cancel();
+        _encodeCancel = new CancellationTokenSource();
+    }
+
     void Save() => ConfigStore.Save(App.ConfigPath, App.Config);
 
     string UndoPath => Path.Combine(Path.GetDirectoryName(App.ConfigPath)!, "undo.json");
 
-    void PushUndo(TagOutcome outcome)
+    void PushUndo(TagOutcome outcome) => PushUndo([outcome]);
+
+    void PushUndo(IReadOnlyCollection<TagOutcome> outcomes)
     {
-        _undo.Add(outcome);
-        while (_undo.Count > UndoLimit)
-            _undo.RemoveAt(0);
+        if (outcomes.Count == 0)
+            return;
+        _undo.AddRange(outcomes);
+        TrimUndo();
         SaveUndo();
+    }
+
+    // Keeps the newest runs whole. Counting single files cut a folder of 50 down to its last 30.
+    void TrimUndo()
+    {
+        var runs = new HashSet<string>(StringComparer.Ordinal);
+        for (var index = _undo.Count - 1; index >= 0; index--)
+        {
+            var run = _undo[index].Batch ?? "single:" + index;
+            if (runs.Contains(run) || runs.Count < UndoLimit)
+                runs.Add(run);
+            else
+                _undo.RemoveAt(index);
+        }
     }
 
     void LoadUndo()
@@ -1492,7 +1822,10 @@ public partial class MainWindow : Window
         {
             var loaded = JsonSerializer.Deserialize<List<TagOutcome>>(File.ReadAllText(UndoPath), ConfigStore.JsonOptions);
             if (loaded != null)
-                _undo.AddRange(loaded.TakeLast(UndoLimit));
+            {
+                _undo.AddRange(loaded);
+                TrimUndo();
+            }
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

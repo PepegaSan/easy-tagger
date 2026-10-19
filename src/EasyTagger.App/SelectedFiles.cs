@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.CSharp.RuntimeBinder;
 using Forms = System.Windows.Forms;
 using System.Text;
 using System.Windows;
@@ -16,17 +17,33 @@ static class SelectedFiles
     const byte VkC = 0x43;
     const uint KeyUp = 2;
 
+    // Text, images and copied files. "Preferred DropEffect" keeps a cut in Explorer a cut.
+    static readonly string[] KeptFormats =
+    [
+        Forms.DataFormats.UnicodeText,
+        Forms.DataFormats.Text,
+        Forms.DataFormats.Rtf,
+        Forms.DataFormats.Html,
+        Forms.DataFormats.CommaSeparatedValue,
+        Forms.DataFormats.FileDrop,
+        "Preferred DropEffect",
+        Forms.DataFormats.Bitmap,
+    ];
+
     public static string LastNote { get; private set; } = "";
 
-    public static List<string> Capture()
+    // Read while WM_HOTKEY is still handled, before BeginInvoke runs later code.
+    public static IntPtr ForegroundNow() => GetForegroundWindow();
+
+    public static List<string> Capture(IntPtr foregroundAtHotkey = default)
     {
         LastNote = "";
-        var foreground = GetAncestor(GetForegroundWindow(), GaRoot);
+        var foreground = foregroundAtHotkey != IntPtr.Zero ? foregroundAtHotkey : GetForegroundWindow();
         var fromShell = FromExplorer(foreground);
         if (fromShell.Count > 0)
             return fromShell;
         FocusSpanFile(foreground);
-        return FromClipboardCopy();
+        return FromClipboardCopy(foreground);
     }
 
     static List<string> FromExplorer(IntPtr foreground)
@@ -48,21 +65,22 @@ static class SelectedFiles
                 try
                 {
                     var handle = new IntPtr(Convert.ToInt64(window.HWND));
-                    if (handle != foreground && GetAncestor(handle, GaRoot) != foreground)
+                    if (!OwnsShellWindow(handle, foreground))
                         continue;
                     dynamic items = window.Document.SelectedItems();
                     int selected = items.Count;
                     for (var itemIndex = 0; itemIndex < selected; itemIndex++)
                         paths.Add((string)items.Item(itemIndex).Path);
-                    break;
+                    if (paths.Count > 0)
+                        break;
                 }
-                catch (COMException)
+                catch (Exception ex) when (ex is COMException or RuntimeBinderException)
                 {
-                    // This shell window is not a folder view.
+                    // This shell window is not a folder view, for example the Control Panel.
                 }
             }
         }
-        catch (COMException)
+        catch (Exception ex) when (ex is COMException or RuntimeBinderException)
         {
             return [];
         }
@@ -70,21 +88,20 @@ static class SelectedFiles
         return ExistingFiles(paths);
     }
 
-    static List<string> FromClipboardCopy()
+    static List<string> FromClipboardCopy(IntPtr foreground)
     {
-        Forms.IDataObject? backup = null;
-        try
+        var backup = SnapshotClipboard();
+        if (!TryEmptyClipboard())
         {
-            if (Forms.Clipboard.ContainsText() || Forms.Clipboard.ContainsFileDropList())
-                backup = Forms.Clipboard.GetDataObject();
-        }
-        catch (Exception ex) when (ex is COMException or ExternalException)
-        {
-            backup = null;
+            LastNote = UiText.Get("clipboard-busy");
+            return [];
         }
 
-        if (!TryEmptyClipboard())
-            return [];
+        if (foreground != IntPtr.Zero)
+        {
+            SetForegroundWindow(foreground);
+            Thread.Sleep(80);
+        }
 
         WaitUntilModifiersReleased();
         var sequence = GetClipboardSequenceNumber();
@@ -128,6 +145,44 @@ static class SelectedFiles
         }
 
         return ExistingFiles(paths);
+    }
+
+    // The object GetDataObject returns reads the clipboard live, so after Ctrl+C it would hand back
+    // the file paths, and putting it back fails. The data is copied out while it is still there.
+    static Forms.DataObject? SnapshotClipboard()
+    {
+        Forms.IDataObject? live;
+        try
+        {
+            live = Forms.Clipboard.GetDataObject();
+        }
+        catch (Exception ex) when (ex is COMException or ExternalException)
+        {
+            return null;
+        }
+        if (live == null)
+            return null;
+
+        var copy = new Forms.DataObject();
+        var kept = false;
+        foreach (var format in KeptFormats)
+        {
+            try
+            {
+                if (!live.GetDataPresent(format, autoConvert: false))
+                    continue;
+                var data = live.GetData(format, autoConvert: false);
+                if (data == null)
+                    continue;
+                copy.SetData(format, autoConvert: false, data);
+                kept = true;
+            }
+            catch (Exception ex) when (ex is COMException or ExternalException or ArgumentException or OutOfMemoryException)
+            {
+                // This format cannot be read. The others are still worth keeping.
+            }
+        }
+        return kept ? copy : null;
     }
 
     static void TapCopy()
@@ -308,6 +363,21 @@ static class SelectedFiles
         }
     }
 
+    // Explorer focus can sit on an inner list view; the shell window is an ancestor of it.
+    static bool OwnsShellWindow(IntPtr shellHwnd, IntPtr active)
+    {
+        if (shellHwnd == IntPtr.Zero || active == IntPtr.Zero)
+            return false;
+        if (shellHwnd == active)
+            return true;
+        for (var walk = active; walk != IntPtr.Zero; walk = GetParent(walk))
+        {
+            if (walk == shellHwnd)
+                return true;
+        }
+        return GetAncestor(shellHwnd, GaRoot) == GetAncestor(active, GaRoot);
+    }
+
     static void FocusSpanFile(IntPtr foreground)
     {
         if (foreground == IntPtr.Zero || !IsSpanFinder(foreground))
@@ -352,15 +422,28 @@ static class SelectedFiles
 
     static void WaitUntilModifiersReleased()
     {
-        for (var attempt = 0; attempt < 25; attempt++)
+        for (var attempt = 0; attempt < 40; attempt++)
         {
-            var control = (GetAsyncKeyState(VkControl) & 0x8000) != 0;
-            var alt = (GetAsyncKeyState(0x12) & 0x8000) != 0;
-            var shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
-            if (!control && !alt && !shift)
+            if (!AnyHotkeyHeld())
                 return;
             Thread.Sleep(40);
         }
+    }
+
+    static bool AnyHotkeyHeld()
+    {
+        if ((GetAsyncKeyState(VkControl) & 0x8000) != 0)
+            return true;
+        if ((GetAsyncKeyState(0x12) & 0x8000) != 0)
+            return true;
+        if ((GetAsyncKeyState(0x10) & 0x8000) != 0)
+            return true;
+        for (var vk = 0x70; vk <= 0x87; vk++)
+        {
+            if ((GetAsyncKeyState(vk) & 0x8000) != 0)
+                return true;
+        }
+        return false;
     }
 
     [DllImport("user32.dll")]
@@ -371,6 +454,9 @@ static class SelectedFiles
 
     [DllImport("user32.dll")]
     static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetParent(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     static extern void keybd_event(byte virtualKey, byte scan, uint flags, UIntPtr extra);

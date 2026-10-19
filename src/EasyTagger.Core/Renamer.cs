@@ -44,12 +44,19 @@ public static class Renamer
 
     public static bool IsTaggedWith(string filename, string modelName)
     {
+        var stem = Path.GetFileNameWithoutExtension(filename);
         var expected = Bracket.Matches(modelName)
             .Select(match => match.Value.ToLowerInvariant())
             .ToHashSet();
         if (expected.Count == 0)
-            return false;
-        var stem = Path.GetFileNameWithoutExtension(filename);
+        {
+            // A plain name such as "Realistic" has no brackets, so the "_Realistic" suffix
+            // BuildNewStem writes is the mark, with or without a " (2)" from a collision.
+            var model = Sanitize(modelName);
+            return model.Length > 0 &&
+                   Regex.IsMatch(stem, "_" + Regex.Escape(model) + @"( \(\d+\))?$", RegexOptions.IgnoreCase);
+        }
+
         var present = Bracket.Matches(stem)
             .Select(match => match.Value.ToLowerInvariant())
             .ToHashSet();
@@ -105,12 +112,13 @@ public static class Renamer
             return sourcePath;
         }
 
-        var dest = sourcePath;
+        // A re-encoded file is an mp4 now, so it goes back under its old name with the new extension.
+        var dest = Path.ChangeExtension(sourcePath, Path.GetExtension(targetPath));
         if (File.Exists(dest))
         {
-            var dir = Path.GetDirectoryName(sourcePath)!;
-            var stem = Path.GetFileNameWithoutExtension(sourcePath);
-            var ext = Path.GetExtension(sourcePath);
+            var dir = Path.GetDirectoryName(dest)!;
+            var stem = Path.GetFileNameWithoutExtension(dest);
+            var ext = Path.GetExtension(dest);
             dest = ResolveCollision(dir, stem, ext);
         }
         else

@@ -121,6 +121,8 @@ public sealed class ModelEditorWindow : Window
             Categories = initial.Categories.ToList(),
             CategoriesInName = initial.CategoriesInName.ToList(),
             Key = _key.SelectedIndex > 0 ? _key.SelectedIndex : null,
+            // A renamed model keeps its place in Fav.
+            Uses = initial.Uses,
         };
         var rows = _rows.Select(entry =>
         {
