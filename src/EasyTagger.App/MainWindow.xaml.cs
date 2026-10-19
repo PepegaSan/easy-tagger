@@ -330,11 +330,19 @@ public partial class MainWindow : Window
         PaintActive(EncodeBitrateButton, App.Config.ReencodeMode == "bitrate");
     }
 
-    void PaintActive(Button button, bool active)
+    // Inactive goes back to what the style says, so a model keeps its red edge and a category its cyan tint.
+    void PaintActive(Button button, bool active, string fill = "SignalRed", string ink = "OnRed")
     {
-        button.Background = (Brush)FindResource(active ? "SignalRed" : "ChipBg");
-        button.BorderBrush = (Brush)FindResource(active ? "SignalRed" : "ChipBorder");
-        button.Foreground = (Brush)FindResource(active ? "OnRed" : "Text");
+        if (!active)
+        {
+            button.ClearValue(BackgroundProperty);
+            button.ClearValue(BorderBrushProperty);
+            button.ClearValue(ForegroundProperty);
+            return;
+        }
+        button.Background = (Brush)FindResource(fill);
+        button.BorderBrush = (Brush)FindResource(fill);
+        button.Foreground = (Brush)FindResource(ink);
     }
 
     void UpdateStatus()
@@ -479,9 +487,12 @@ public partial class MainWindow : Window
         foreach (var chip in chips)
         {
             var id = chip.Id;
-            var button = MakeChip($"{chip.Label}" + (chip.Id == ModelGroups.AllId ? "" : $" ({chip.Count})"), chip.Id == _modelFilter);
-            if (chip.Id == ModelGroups.AllId)
-                button.Content = chip.Label;
+            var button = new Button
+            {
+                Content = chip.Id == ModelGroups.AllId ? chip.Label : $"{chip.Label} ({chip.Count})",
+                Style = (Style)FindResource("CategoryChip"),
+            };
+            PaintActive(button, chip.Id == _modelFilter, "LabelCyan", "OnCyan");
             button.Click += (_, _) =>
             {
                 _modelFilter = id;
