@@ -130,6 +130,8 @@
             <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
             <Setter Property="FontSize" Value="15"/>
             <Setter Property="FontWeight" Value="Medium"/>
+            <!-- Beside a button the row is taller than the box; at the top it lines up with the button. -->
+            <Setter Property="VerticalAlignment" Value="Top"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <!-- No Padding on the Border: the text box already applies Padding to its text host,

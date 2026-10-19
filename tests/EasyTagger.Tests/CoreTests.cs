@@ -221,6 +221,28 @@ public class ConfigTests
     }
 
     [Fact]
+    public void ThePickerCanUseTheOtherProfileWithoutSwitching()
+    {
+        var config = TagConfig.CreateDefault();
+        config.SwitchProfile(TagConfig.ProfileDownloads);
+        config.Action = "copy";
+        config.ReencodeEnabled = true;
+        config.SwitchProfile(TagConfig.ProfileModels);
+        config.Action = "rename_only";
+
+        var downloads = config.PickerProfile(TagConfig.ProfileDownloads);
+        downloads.DownloadPicker.LastSelection.Target = "katze";
+        var settings = config.SettingsFor(TagConfig.ProfileDownloads);
+        Assert.Equal(TagConfig.ProfileModels, config.ActiveProfile);
+        Assert.Equal("copy", settings.Action);
+        Assert.True(settings.ReencodeEnabled);
+        Assert.Same(config, config.SettingsFor(TagConfig.ProfileModels));
+
+        config.SwitchProfile(TagConfig.ProfileDownloads);
+        Assert.Equal("[Clip] [Katze] [Sitzen]", DownloadTags.SelectionName(config.DownloadPicker));
+    }
+
+    [Fact]
     public void ProfileSwitchKeepsTheNumberKeys()
     {
         var config = TagConfig.CreateDefault();

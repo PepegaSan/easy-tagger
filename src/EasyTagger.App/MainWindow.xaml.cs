@@ -193,7 +193,6 @@ public partial class MainWindow : Window
         ActionMoveButton.Content = UiText.Get("move");
         ActionCopyButton.Content = UiText.Get("copy");
         ActionRenameButton.Content = UiText.Get("rename");
-        TypeFolderLabel.Text = UiText.Get("type-folder");
         BrowseTypeFolderButton.Content = UiText.Get("browse");
         EncodeTitle.Text = UiText.Get("encode-title");
         EncodeSummary.Text = UiText.Get("encode-summary");
@@ -210,7 +209,9 @@ public partial class MainWindow : Window
         EncodeFfprobeLabel.Text = UiText.Get("encode-ffprobe");
         SaveHotkeyButton.Content = UiText.Get("hotkey");
         HotkeyBox.ToolTip = UiText.Get("hotkey-hint");
-        FinalNamesBox.Content = UiText.Get("final");
+        // A single "_" in a check box label marks a shortcut key and disappears, so it is doubled.
+        FinalNamesBox.Content = UiText.Get("final").Replace("_", "__");
+        FinalNamesBox.ToolTip = UiText.Get("final-hint");
         ProcessExistingBox.Content = UiText.Get("process-existing");
         CloseToTrayBox.Content = UiText.Get("tray");
         StartInTrayBox.Content = UiText.Get("start-tray");
@@ -231,10 +232,19 @@ public partial class MainWindow : Window
         AddTypeButton.Content = UiText.Get("add-type");
         AddTargetButton.Content = UiText.Get("add-target");
         AddContentButton.Content = UiText.Get("add-content");
-        TypeLabel.Text = UiText.Get("type");
-        TargetLabel.Text = UiText.Get("target");
-        ContentLabel.Text = UiText.Get("content");
+        DownloadsIntro.Text = UiText.Get("downloads-intro");
+        TypeLabel.Text = UiText.Get("step-type");
+        TypeHint.Text = UiText.Get("type-hint");
+        TargetLabel.Text = UiText.Get("step-target");
+        TargetHint.Text = UiText.Get("target-hint");
+        ContentLabel.Text = UiText.Get("step-content");
+        ContentHint.Text = UiText.Get("content-hint");
         PreviewCaption.Text = UiText.Get("preview");
+        ResultNameLabel.Text = UiText.Get("result-name");
+        ResultFolderLabel.Text = UiText.Get("result-folder");
+        TitleNote.Text = UiText.Get("title-note");
+        DownloadsEditHint.Text = UiText.Get("downloads-edit-hint");
+        WatchHint.Text = UiText.Get("watch-hint");
         ToggleWatchButton.Content = UiText.Get(_watching ? "stop" : "start");
         if (_tray?.ContextMenuStrip is { Items.Count: >= 3 } menu)
         {
@@ -284,6 +294,7 @@ public partial class MainWindow : Window
         var showWatch = config.ActiveProfile != TagConfig.ProfileModels;
         var watchVisibility = showWatch ? Visibility.Visible : Visibility.Collapsed;
         WatchFolderRow.Visibility = watchVisibility;
+        WatchHint.Visibility = watchVisibility;
         ToggleWatchButton.Visibility = watchVisibility;
         TagExistingButton.Visibility = watchVisibility;
         FinalNamesBox.Visibility = watchVisibility;
@@ -358,18 +369,101 @@ public partial class MainWindow : Window
             _ => "model-now-move",
         });
         StatusHotkeyText.Text = App.Config.Hotkey;
-        PreviewNameText.Text = DownloadTags.SelectionName(App.Config.DownloadPicker);
-        PreviewFolderText.Text = DownloadTags.SelectionFolder(App.Config.DownloadPicker);
-        var selectedType = App.Config.DownloadPicker.Types
-            .FirstOrDefault(item => item.Id == App.Config.DownloadPicker.LastSelection.Type);
-        var baseFolder = selectedType?.BaseFolder ?? "";
-        if (TypeFolderBox.Text != baseFolder)
+        ShowDownloadResult();
+    }
+
+    // Spells out how the three choices become a name and a folder, piece by piece,
+    // and says it plainly when a piece is missing instead of leaving a blank.
+    void ShowDownloadResult()
+    {
+        var picker = App.Config.DownloadPicker;
+        var type = picker.Types.FirstOrDefault(item => item.Id == picker.LastSelection.Type);
+        var target = picker.Targets.FirstOrDefault(item => item.Id == picker.LastSelection.Target);
+        var typeName = type?.Label ?? "";
+        var targetName = target?.Label ?? "";
+        var moves = App.Config.Action != "rename_only";
+        var noBase = type == null || string.IsNullOrWhiteSpace(type.BaseFolder);
+
+        SetQuietly(TypeFolderBox, type?.BaseFolder ?? "");
+        SetQuietly(TargetFolderBox, target?.FolderName ?? "");
+        TypeFolderBox.IsEnabled = type != null;
+        TargetFolderBox.IsEnabled = target != null;
+        TypeFolderLabel.Text = string.Format(UiText.Get("type-folder-of"), typeName);
+        TargetFolderLabel.Text = string.Format(UiText.Get("target-folder-of"), targetName);
+        TypeFolderWarning.Text = string.Format(UiText.Get("type-folder-missing"), typeName);
+        TypeFolderWarning.Visibility = type != null && noBase && moves ? Visibility.Visible : Visibility.Collapsed;
+
+        PreviewNamePanel.Children.Clear();
+        var title = Segment(UiText.Get("seg-title") + "_", "", muted: true);
+        // The real name has no space after the underscore, so neither does the picture of it.
+        title.Margin = new Thickness(0, 0, 1, 4);
+        PreviewNamePanel.Children.Add(title);
+        if (type != null)
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(type)), UiText.Get("type")));
+        if (target != null)
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(target)), UiText.Get("target")));
+        foreach (var content in picker.Contents.Where(item => picker.LastSelection.Contents.Contains(item.Id)))
+            PreviewNamePanel.Children.Add(Segment(TextIds.FormatTag(DownloadTags.Display(content)), UiText.Get("content")));
+
+        PreviewFolderPanel.Children.Clear();
+        if (!moves)
+            PreviewFolderPanel.Children.Add(Note(UiText.Get("result-rename-only"), "Muted"));
+        else if (type == null || target == null)
+            PreviewFolderPanel.Children.Add(Note(UiText.Get("result-incomplete"), "SignalRed"));
+        else if (noBase)
+            PreviewFolderPanel.Children.Add(Note(string.Format(UiText.Get("result-no-folder"), typeName), "SignalRed"));
+        else
         {
-            _suppress = true;
-            TypeFolderBox.Text = baseFolder;
-            _suppress = false;
+            PreviewFolderPanel.Children.Add(Segment(type.BaseFolder, string.Format(UiText.Get("seg-base"), typeName)));
+            var child = string.IsNullOrWhiteSpace(target.FolderName) ? target.Id : target.FolderName;
+            PreviewFolderPanel.Children.Add(Segment("\\" + child, string.Format(UiText.Get("seg-sub"), targetName)));
         }
     }
+
+    void SetQuietly(TextBox box, string text)
+    {
+        if (box.Text == text)
+            return;
+        _suppress = true;
+        box.Text = text;
+        _suppress = false;
+    }
+
+    // One piece of the result with a line and a caption under it, naming the step it came from.
+    FrameworkElement Segment(string text, string caption, bool muted = false)
+    {
+        var piece = new StackPanel { Margin = new Thickness(0, 0, 8, 4) };
+        piece.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource(muted ? "Muted" : "Text"),
+            MaxWidth = 620,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (caption.Length > 0)
+        {
+            piece.Children.Add(new Border
+            {
+                BorderBrush = (Brush)FindResource("FieldBorder"),
+                BorderThickness = new Thickness(0, 2, 0, 0),
+                Margin = new Thickness(0, 3, 0, 2),
+            });
+            piece.Children.Add(new TextBlock { Text = caption, FontSize = 11, Foreground = (Brush)FindResource("Muted") });
+        }
+        return piece;
+    }
+
+    TextBlock Note(string text, string brush) => new()
+    {
+        Text = text,
+        // A wrap panel measures without a width limit, so the text needs its own to wrap.
+        MaxWidth = 820,
+        FontWeight = FontWeights.SemiBold,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = (Brush)FindResource(brush),
+    };
 
     void BuildCategories()
     {
@@ -490,12 +584,13 @@ public partial class MainWindow : Window
                 BuildDownloads();
                 UpdateStatus();
             };
-            AttachItemMenu(button, () => EditDownload("contents", current), () =>
+            AttachItemMenu(button, current.Label, () => EditDownload("contents", current), () =>
             {
                 DownloadTags.RemoveItem(picker, "contents", current.Id);
                 Save();
                 RefreshAll();
             });
+            button.ToolTip = UiText.Get("chip-edit-hint");
             ContentPanel.Children.Add(button);
         }
     }
@@ -508,12 +603,17 @@ public partial class MainWindow : Window
             var current = item;
             var button = MakeChip(current.Label, current.Id == selectedId);
             button.Click += (_, _) => choose(current.Id);
-            AttachItemMenu(button, () => EditDownload(group, current), () =>
+            AttachItemMenu(button, current.Label, () => EditDownload(group, current), () =>
             {
                 DownloadTags.RemoveItem(App.Config.DownloadPicker, group, current.Id);
                 Save();
                 RefreshAll();
             });
+            // The folder a chip stands for is visible before choosing it.
+            var folder = group == "types"
+                ? string.Format(UiText.Get("tip-base"), string.IsNullOrWhiteSpace(current.BaseFolder) ? "–" : current.BaseFolder)
+                : string.Format(UiText.Get("tip-sub"), current.FolderName);
+            button.ToolTip = folder + Environment.NewLine + UiText.Get("chip-edit-hint");
             panel.Children.Add(button);
         }
     }
@@ -525,13 +625,18 @@ public partial class MainWindow : Window
         return button;
     }
 
-    static void AttachItemMenu(Button button, Action edit, Action remove)
+    void AttachItemMenu(Button button, string label, Action edit, Action remove)
     {
         var menu = new ContextMenu();
         var editItem = new MenuItem { Header = UiText.Get("edit") };
         editItem.Click += (_, _) => edit();
         var item = new MenuItem { Header = UiText.Get("remove") };
-        item.Click += (_, _) => remove();
+        item.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, string.Format(UiText.Get("item-remove"), label), "Easy Tagger",
+                    MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                remove();
+        };
         menu.Items.Add(editItem);
         menu.Items.Add(item);
         button.ContextMenu = menu;
@@ -836,12 +941,24 @@ public partial class MainWindow : Window
 
     void AddDownloadItem(string group, bool askFolder)
     {
-        var label = Prompt.Ask(this, UiText.Get("tag-name"), UiText.Get("name"));
+        var question = group switch
+        {
+            "types" => "add-type-name",
+            "targets" => "add-target-name",
+            _ => "add-content-name",
+        };
+        var label = Prompt.Ask(this, UiText.Get(group switch
+        {
+            "types" => "add-type",
+            "targets" => "add-target",
+            _ => "add-content",
+        }), UiText.Get(question));
         if (string.IsNullOrWhiteSpace(label))
             return;
         if (askFolder)
         {
-            Prompt.ChooseFolder(this, "", chosen => Store(chosen), () => Store(""));
+            Prompt.ChooseFolder(this, "", chosen => Store(chosen), () => Store(""),
+                string.Format(UiText.Get("type-folder-pick"), label.Trim()));
             return;
         }
         Store("");
@@ -1242,6 +1359,20 @@ public partial class MainWindow : Window
 
     void OnTypeFolderLostFocus(object sender, RoutedEventArgs e) => SaveTypeFolder();
 
+    void OnTargetFolderLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppress)
+            return;
+        var picker = App.Config.DownloadPicker;
+        var target = picker.Targets.FirstOrDefault(item => item.Id == picker.LastSelection.Target);
+        if (target == null)
+            return;
+        // Left empty, saving falls back to the target's own id as the folder name.
+        target.FolderName = TargetFolderBox.Text.Trim();
+        Save();
+        UpdateStatus();
+    }
+
     void SaveTypeFolder()
     {
         if (_suppress)
@@ -1468,7 +1599,7 @@ public partial class MainWindow : Window
             _picker.Activate();
             return;
         }
-        _picker = new PickerWindow(App.Config, files, model => TagChosenFiles(files, model));
+        _picker = new PickerWindow(App.Config, files, (model, profile) => TagChosenFiles(files, model, profile));
         _picker.Closed += (_, _) =>
         {
             _picker = null;
@@ -1504,8 +1635,13 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(() => ShowPicker(files));
     }
 
-    void TagChosenFiles(IReadOnlyList<string> files, FaceModel model)
+    // profile is the picker tab the choice came from; its action and re-encoding apply,
+    // even when the main window shows the other profile.
+    void TagChosenFiles(IReadOnlyList<string> files, FaceModel model, string profile)
     {
+        var settings = App.Config.SettingsFor(profile);
+        var action = settings.Action;
+        var reencode = settings.ReencodeEnabled;
         // The picker has already closed, so a dialog would pop up out of nowhere. A tray hint is enough.
         if (string.IsNullOrWhiteSpace(model.Name))
         {
@@ -1513,16 +1649,13 @@ public partial class MainWindow : Window
             Notify(UiText.Get("no-model"), Forms.ToolTipIcon.Warning);
             return;
         }
-        if (App.Config.Action != "rename_only" && string.IsNullOrWhiteSpace(model.Folder))
+        if (action != "rename_only" && string.IsNullOrWhiteSpace(model.Folder))
         {
             Log(model.Name + UiText.Get("no-folder"));
             Notify(model.Name + UiText.Get("no-folder"), Forms.ToolTipIcon.Warning);
             return;
         }
 
-        var action = App.Config.Action;
-        var reencode = App.Config.ReencodeEnabled;
-        var settings = App.Config;
         var batch = Guid.NewGuid().ToString("N");
         var cancel = _encodeCancel.Token;
         Log(string.Format(UiText.Get("picker-run"), files.Count, model.Name));

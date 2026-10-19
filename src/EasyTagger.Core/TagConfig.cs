@@ -47,7 +47,18 @@ public sealed class DownloadPicker
     public static DownloadPicker CreateDefault() => DownloadTags.CreateDefault();
 }
 
-public sealed class ProfileState
+// What the picker reads and changes. The active profile keeps it in the config itself and the
+// other one in its saved state; both offer these properties, so the picker can show either.
+public interface IPickerProfile
+{
+    List<FaceModel> Models { get; }
+    List<ModelCategory> ModelCategories { get; }
+    string ActiveModel { get; set; }
+    DownloadPicker DownloadPicker { get; }
+    string Action { get; }
+}
+
+public sealed class ProfileState : IPickerProfile
 {
     public string WatchFolder { get; set; } = "";
     public string Action { get; set; } = "move";
@@ -68,7 +79,7 @@ public sealed class ProfileState
     public string FfprobePath { get; set; } = "";
 }
 
-public sealed class TagConfig
+public sealed class TagConfig : IPickerProfile
 {
     public const string ProfileModels = "models";
     public const string ProfileDownloads = "downloads";
@@ -172,6 +183,21 @@ public sealed class TagConfig
         Profiles[ActiveProfile] = CaptureState();
         ActiveProfile = profileId;
         ApplyState(Profiles[profileId]);
+    }
+
+    // Either profile's picker data, live: a change lands where that profile keeps it,
+    // so the active profile never has to switch just to tag a few files with the other one.
+    public IPickerProfile PickerProfile(string profileId) =>
+        profileId != ActiveProfile && Profiles.TryGetValue(profileId, out var state) ? state : this;
+
+    // Action and re-encoding settings of a profile, as a config the tagging code can use directly.
+    public TagConfig SettingsFor(string profileId)
+    {
+        if (profileId == ActiveProfile || !Profiles.TryGetValue(profileId, out var state))
+            return this;
+        var settings = new TagConfig();
+        settings.ApplyState(state);
+        return settings;
     }
 
     public FaceModel? ActiveFaceModel()

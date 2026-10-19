@@ -70,6 +70,7 @@
                             </DockPanel>
                         </Border>
                         <StackPanel Margin="16,14,16,8">
+                            <TextBlock x:Name="WatchHint" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,10"/>
                             <DockPanel x:Name="WatchFolderRow" Margin="0,0,0,10">
                                 <Button x:Name="BrowseFolderButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnBrowseFolder"/>
                                 <TextBox x:Name="FolderBox" Margin="0,0,8,0" LostFocus="OnFolderLostFocus"/>
@@ -159,30 +160,60 @@
                                 <TextBlock x:Name="DownloadsTitle" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" VerticalAlignment="Center"/>
                             </DockPanel>
                         </Border>
+                        <!-- Three steps, each saying what it decides, with its folder right below it.
+                             The result box then labels every piece with the step it came from. -->
                         <StackPanel Margin="16,14,16,8">
-                            <TextBlock x:Name="TypeLabel" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                            <TextBlock x:Name="DownloadsIntro" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                            <WrapPanel Margin="0,0,0,6">
+                                <TextBlock x:Name="TypeLabel" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                                <TextBlock x:Name="TypeHint" Foreground="{StaticResource Muted}" Margin="12,0,0,0"/>
+                            </WrapPanel>
                             <DockPanel>
                                 <Button x:Name="AddTypeButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddType"/>
                                 <WrapPanel x:Name="TypePanel"/>
                             </DockPanel>
-                            <TextBlock x:Name="TypeFolderLabel" Foreground="{StaticResource Muted}" Margin="0,4,0,6"/>
-                            <DockPanel Margin="0,0,0,8">
+                            <TextBlock x:Name="TypeFolderLabel" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                            <DockPanel>
                                 <Button x:Name="BrowseTypeFolderButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnBrowseTypeFolder"/>
                                 <TextBox x:Name="TypeFolderBox" Margin="0,0,8,0" LostFocus="OnTypeFolderLostFocus"/>
                             </DockPanel>
-                            <TextBlock x:Name="TargetLabel" Foreground="{StaticResource Muted}" Margin="0,8,0,6"/>
+                            <TextBlock x:Name="TypeFolderWarning" Foreground="{StaticResource SignalRed}" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
+
+                            <WrapPanel Margin="0,14,0,6">
+                                <TextBlock x:Name="TargetLabel" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                                <TextBlock x:Name="TargetHint" Foreground="{StaticResource Muted}" Margin="12,0,0,0"/>
+                            </WrapPanel>
                             <DockPanel>
                                 <Button x:Name="AddTargetButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddTarget"/>
                                 <WrapPanel x:Name="TargetPanel"/>
                             </DockPanel>
-                            <TextBlock x:Name="ContentLabel" Foreground="{StaticResource Muted}" Margin="0,8,0,6"/>
+                            <TextBlock x:Name="TargetFolderLabel" Foreground="{StaticResource Muted}" Margin="0,0,0,6"/>
+                            <TextBox x:Name="TargetFolderBox" Width="320" HorizontalAlignment="Left" Margin="0,0,0,8"
+                                     LostFocus="OnTargetFolderLostFocus"/>
+
+                            <WrapPanel Margin="0,14,0,6">
+                                <TextBlock x:Name="ContentLabel" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}"/>
+                                <TextBlock x:Name="ContentHint" Foreground="{StaticResource Muted}" Margin="12,0,0,0"/>
+                            </WrapPanel>
                             <DockPanel>
                                 <Button x:Name="AddContentButton" DockPanel.Dock="Right" Style="{StaticResource Chip}" Click="OnAddContent"/>
                                 <WrapPanel x:Name="ContentPanel"/>
                             </DockPanel>
-                            <TextBlock x:Name="PreviewCaption" Foreground="{StaticResource Muted}" Margin="0,12,0,4"/>
-                            <TextBlock x:Name="PreviewNameText" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock x:Name="PreviewFolderText" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <Border Background="{StaticResource Elevated}" BorderBrush="{StaticResource ChipBorder}" BorderThickness="1"
+                                    CornerRadius="6" Padding="14,12" Margin="0,14,0,8">
+                                <StackPanel>
+                                    <TextBlock x:Name="PreviewCaption" FontWeight="ExtraBold" Foreground="{StaticResource LabelCyan}" Margin="0,0,0,10"/>
+                                    <TextBlock x:Name="ResultNameLabel" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,0,2"/>
+                                    <WrapPanel x:Name="PreviewNamePanel" Margin="0,0,0,10"/>
+                                    <TextBlock x:Name="ResultFolderLabel" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,0,2"/>
+                                    <WrapPanel x:Name="PreviewFolderPanel" Margin="0,0,0,10"/>
+                                    <TextBlock x:Name="TitleNote" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock x:Name="DownloadsEditHint" Foreground="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>

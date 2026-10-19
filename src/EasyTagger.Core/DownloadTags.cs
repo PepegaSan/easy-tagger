@@ -178,6 +178,7 @@ public static class DownloadTags
             FolderName = folderName,
         };
 
-    static string Display(CatalogItem item) =>
+    // The text that goes between the brackets in the file name.
+    public static string Display(CatalogItem item) =>
         string.IsNullOrWhiteSpace(item.Tag) ? item.Label : item.Tag;
 }

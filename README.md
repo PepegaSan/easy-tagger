@@ -8,7 +8,7 @@ The window uses a dark layout: black background, a red section bar, chip buttons
 
 Double-click `start.bat`. That requires the .NET 8 SDK. Settings are stored in `%LocalAppData%\EasyTagger\config.json`, outside the project folder.
 
-The default hotkey is `Win+Shift+E`. It opens the model or download picker for the files selected in Explorer, even when the window is in the tray. Dragging files onto the window opens the same picker. In the picker, typing searches the models, Enter picks, and 1–9 pick a model that has a number key. To change the hotkey, click the field under Settings and press the new combination. Closing the window sends it to the tray. Quit from the tray menu.
+The default hotkey is `Win+Shift+E`. It opens the model or download picker for the files selected in Explorer, even when the window is in the tray. Dragging files onto the window opens the same picker. In the picker, typing searches the models, Enter picks, and 1–9 pick a model that has a number key. The tabs at the top, or Ctrl+Tab, switch between models and downloads; the files are then tagged with that tab’s action and re-encoding, while the main window and a running download watch stay as they are. To change the hotkey, click the field under Settings and press the new combination. Closing the window sends it to the tray. Quit from the tray menu.
 
 ## FFmpeg
 
@@ -20,7 +20,7 @@ Double-click `install-ffmpeg.bat` to install the essentials build and put it on 
 
 **Models** assigns a name and a destination folder. Categories added with `+` filter the buttons. The “also in the file name” option writes the category into the name as well. A `[]` tag typed directly into the name is kept when you save.
 
-**Downloads** builds a name from type, target, and content, for example `[Clip] [Hund] [Sitzen]`. The destination folder is the type’s base folder plus the target’s folder name.
+**Downloads** builds a name from type, target, and content, for example `[Clip] [Hund] [Sitzen]`. Type and target decide the folder: the type’s base folder plus the target’s subfolder. Content only goes into the name, and several can be on at once. The result box under the three steps labels each part of the name and the folder with the step it came from, and says so when a base folder is missing.
 
 ## Examples
 

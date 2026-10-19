@@ -10,10 +10,20 @@ public sealed class PickerWindow : Window
 {
     readonly TagConfig _config;
     readonly IReadOnlyList<string> _files;
-    readonly Action<FaceModel> _onChosen;
-    readonly bool _downloads;
+    // Gets the chosen name and folder plus the profile whose action and re-encoding apply.
+    readonly Action<FaceModel, string> _onChosen;
+    // The tab shown. It starts on the main window's profile but switching it leaves that profile alone,
+    // so a running download watch keeps going while a few files get a model.
+    string _profile;
+    bool _downloads => _profile == TagConfig.ProfileDownloads;
+    IPickerProfile View => _config.PickerProfile(_profile);
+    readonly WrapPanel _tabs = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _keys = new() { FontSize = 12, Margin = new Thickness(0, 10, 0, 0) };
+    UIElement? _searchBox;
     string _filter = ModelGroups.AllId;
     readonly WrapPanel _chips = new();
+    // Downloads: one labelled row each for type, target and content, so the three never blur together.
+    readonly StackPanel _rows = new();
     readonly WrapPanel _buttons = new();
     readonly TextBox _search = new() { Margin = new Thickness(0, 0, 0, 12) };
     readonly TextBlock _target = new()
@@ -33,12 +43,12 @@ public sealed class PickerWindow : Window
     // The button that shows the cyan border, so Enter never picks something unseen.
     Button? _marked;
 
-    public PickerWindow(TagConfig config, IReadOnlyList<string> files, Action<FaceModel> onChosen)
+    public PickerWindow(TagConfig config, IReadOnlyList<string> files, Action<FaceModel, string> onChosen)
     {
         _config = config;
         _files = files;
         _onChosen = onChosen;
-        _downloads = config.ActiveProfile == TagConfig.ProfileDownloads;
+        _profile = config.ActiveProfile;
         Title = "Easy Tagger";
         Width = 560;
         SizeToContent = SizeToContent.Height;
@@ -50,13 +60,19 @@ public sealed class PickerWindow : Window
         Foreground = Res("Text");
 
         var root = new StackPanel { Margin = new Thickness(16) };
-        root.Children.Add(new TextBlock
+        // The tabs sit top right, like the profile buttons in the main window.
+        var header = new DockPanel();
+        DockPanel.SetDock(_tabs, Dock.Right);
+        header.Children.Add(_tabs);
+        header.Children.Add(new TextBlock
         {
             Text = "EASY TAGGER",
             Foreground = Res("Text"),
             FontWeight = FontWeights.ExtraBold,
             FontSize = 16,
+            VerticalAlignment = VerticalAlignment.Center,
         });
+        root.Children.Add(header);
         root.Children.Add(new TextBlock
         {
             Text = string.Format(UiText.Get("picker-files"), files.Count, Path.GetFileName(files[0])),
@@ -64,9 +80,10 @@ public sealed class PickerWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 12),
         });
-        if (!_downloads)
-            root.Children.Add(SearchBox());
+        _searchBox = SearchBox();
+        root.Children.Add(_searchBox);
         root.Children.Add(_chips);
+        root.Children.Add(_rows);
         // With "Alle" the list gets long, so it scrolls instead of pushing the window off the screen.
         root.Children.Add(new ScrollViewer
         {
@@ -85,29 +102,70 @@ public sealed class PickerWindow : Window
                 main.ShowFromTray();
         };
         root.Children.Add(open);
-        root.Children.Add(new TextBlock
-        {
-            Text = UiText.Get(_downloads ? "picker-keys-downloads" : "picker-keys"),
-            Foreground = Res("Muted"),
-            FontSize = 12,
-            Margin = new Thickness(0, 10, 0, 0),
-        });
+        _keys.Foreground = Res("Muted");
+        root.Children.Add(_keys);
         Content = root;
         KeyDown += OnKeyDown;
+        PreviewKeyDown += (_, e) =>
+        {
+            // Ctrl+Tab before focus navigation sees the Tab.
+            if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                ShowProfile(_downloads ? TagConfig.ProfileModels : TagConfig.ProfileDownloads);
+                e.Handled = true;
+            }
+        };
         PreviewTextInput += OnTextInput;
         Loaded += (_, _) =>
         {
             Activate();
-            if (_downloads)
-                _default?.Focus();
-            else
-                _search.Focus();
-            // The first layout sets the height. After that a shorter result list must not make the window jump.
-            Dispatcher.BeginInvoke(() => SizeToContent = SizeToContent.Manual,
-                System.Windows.Threading.DispatcherPriority.ContextIdle);
+            FocusStart();
+            FreezeHeight();
         };
-        Rebuild();
+        ShowProfile(_profile);
     }
+
+    void ShowProfile(string profile)
+    {
+        var switching = profile != _profile;
+        _profile = profile;
+        _filter = ModelGroups.AllId;
+        _search.Clear();
+        _tabs.Children.Clear();
+        AddTab(TagConfig.ProfileModels, "models");
+        AddTab(TagConfig.ProfileDownloads, "downloads");
+        _searchBox!.Visibility = _downloads ? Visibility.Collapsed : Visibility.Visible;
+        _keys.Text = UiText.Get(_downloads ? "picker-keys-downloads" : "picker-keys");
+        Rebuild();
+        if (!switching)
+            return;
+        // The other tab has a different height; let it size itself once, then hold still again.
+        SizeToContent = SizeToContent.Height;
+        FocusStart();
+        FreezeHeight();
+    }
+
+    void AddTab(string profile, string label)
+    {
+        var tab = Card(UiText.Get(label), profile == _profile);
+        tab.MinWidth = 0;
+        tab.Margin = new Thickness(8, 0, 0, 0);
+        tab.Click += (_, _) => ShowProfile(profile);
+        _tabs.Children.Add(tab);
+    }
+
+    void FocusStart()
+    {
+        if (_downloads)
+            _default?.Focus();
+        else
+            _search.Focus();
+    }
+
+    // The first layout sets the height. After that a shorter result list must not make the window jump.
+    void FreezeHeight() =>
+        Dispatcher.BeginInvoke(() => SizeToContent = SizeToContent.Manual,
+            System.Windows.Threading.DispatcherPriority.ContextIdle);
 
     // Typing while a model button has focus still goes into the search.
     void OnTextInput(object sender, TextCompositionEventArgs e)
@@ -183,7 +241,7 @@ public sealed class PickerWindow : Window
         if (_search.Text.Length > 0)
             return;
         var number = DigitValue(e.Key);
-        var keyed = number > 0 ? _config.Models.FirstOrDefault(model => model.Key == number) : null;
+        var keyed = number > 0 && !_downloads ? View.Models.FirstOrDefault(model => model.Key == number) : null;
         if (keyed != null)
         {
             Choose(keyed);
@@ -204,6 +262,7 @@ public sealed class PickerWindow : Window
         // The buttons are new after a rebuild, so focus goes back to the one that stands for the same thing.
         var focusedId = (Keyboard.FocusedElement as Button)?.Tag is Slot slot ? slot.Id : null;
         _chips.Children.Clear();
+        _rows.Children.Clear();
         _buttons.Children.Clear();
         _default = null;
         _marked = null;
@@ -214,7 +273,9 @@ public sealed class PickerWindow : Window
 
         var again = focusedId == null
             ? null
-            : _chips.Children.OfType<Button>().Concat(_buttons.Children.OfType<Button>())
+            : _chips.Children.OfType<Button>()
+                .Concat(_rows.Children.OfType<WrapPanel>().SelectMany(row => row.Children.OfType<Button>()))
+                .Concat(_buttons.Children.OfType<Button>())
                 .FirstOrDefault(button => button.Tag is Slot item && item.Id == focusedId);
         if (again != null)
             again.Focus();
@@ -224,15 +285,16 @@ public sealed class PickerWindow : Window
 
     void BuildModels()
     {
-        var groups = ModelGroups.AvailableGroups(_config.Models, _config.ModelCategories, UiText.Get("other"));
+        var view = View;
+        var groups = ModelGroups.AvailableGroups(view.Models, view.ModelCategories, UiText.Get("other"));
         if (_filter != ModelGroups.AllId && groups.All(chip => chip.Id != _filter))
             _filter = ModelGroups.AllId;
-        AddFilter(ModelGroups.AllId, $"{UiText.Get("all")} ({_config.Models.Count})");
+        AddFilter(ModelGroups.AllId, $"{UiText.Get("all")} ({view.Models.Count})");
         foreach (var chip in groups)
             AddFilter(chip.Id, $"{chip.Label} ({chip.Count})");
 
         var query = _search.Text.Trim();
-        var models = ModelGroups.Filter(_config.Models, _filter)
+        var models = ModelGroups.Filter(view.Models, _filter)
             .Where(model => model.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
             .ToList();
         foreach (var model in models)
@@ -240,7 +302,7 @@ public sealed class PickerWindow : Window
             var current = model;
             // The number comes from the model itself, so it stays put when the list order changes.
             var label = current.Key is int key ? $"{key}  {current.Name}" : current.Name;
-            var active = current.Name == _config.ActiveModel;
+            var active = current.Name == view.ActiveModel;
             var button = Card(label, active, new Slot("model:" + current.Name, active, current));
             if (!string.IsNullOrWhiteSpace(current.Folder))
                 button.ToolTip = current.Folder;
@@ -281,9 +343,10 @@ public sealed class PickerWindow : Window
 
     void BuildDownloads()
     {
-        var picker = _config.DownloadPicker;
+        var picker = View.DownloadPicker;
         AddChoice("type", picker.Types, picker.LastSelection.Type, id => picker.LastSelection.Type = id);
         AddChoice("target", picker.Targets, picker.LastSelection.Target, id => picker.LastSelection.Target = id);
+        var contents = Row("content");
         foreach (var item in picker.Contents)
         {
             var current = item;
@@ -294,7 +357,7 @@ public sealed class PickerWindow : Window
                 DownloadTags.ToggleContent(picker, current.Id);
                 Rebuild();
             };
-            _buttons.Children.Add(button);
+            contents.Children.Add(button);
         }
         var applyModel = DownloadTags.SelectionModel(picker);
         var apply = Card(UiText.Get("apply"), true, new Slot("apply", true, applyModel));
@@ -305,6 +368,7 @@ public sealed class PickerWindow : Window
 
     void AddChoice(string group, List<CatalogItem> items, string selected, Action<string> choose)
     {
+        var row = Row(group);
         foreach (var item in items)
         {
             var current = item;
@@ -315,8 +379,24 @@ public sealed class PickerWindow : Window
                 choose(current.Id);
                 Rebuild();
             };
-            _chips.Children.Add(button);
+            row.Children.Add(button);
         }
+    }
+
+    // A row that starts with the group's name: "type", "target" or "content".
+    WrapPanel Row(string group)
+    {
+        var row = new WrapPanel();
+        row.Children.Add(new TextBlock
+        {
+            Text = UiText.Get(group),
+            Foreground = Res("Muted"),
+            Width = 64,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8),
+        });
+        _rows.Children.Add(row);
+        return row;
     }
 
     void Mark(Button? button)
@@ -353,7 +433,7 @@ public sealed class PickerWindow : Window
         var oldName = Path.GetFileName(first);
         var newName = Renamer.BuildNewStem(oldName, model.Name).NewStem + Path.GetExtension(first);
         var text = string.Format(UiText.Get("picker-rename"), oldName, newName);
-        if (_config.Action != "rename_only")
+        if (View.Action != "rename_only")
         {
             text += "  ·  " + (string.IsNullOrWhiteSpace(model.Folder)
                 ? UiText.Get("picker-no-folder")
@@ -367,10 +447,10 @@ public sealed class PickerWindow : Window
     void Choose(FaceModel model)
     {
         // The model picked here is the one the next picker offers first, so Enter repeats it.
-        if (!_downloads && _config.Models.Contains(model))
-            _config.ActiveModel = model.Name;
+        if (!_downloads && View.Models.Contains(model))
+            View.ActiveModel = model.Name;
         Close();
-        _onChosen(model);
+        _onChosen(model, _profile);
     }
 
     Button Card(string text, bool active, Slot? slot = null)

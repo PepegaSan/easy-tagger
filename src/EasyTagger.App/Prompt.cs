@@ -64,13 +64,13 @@ public static class Prompt
 
     static readonly Guid FolderDialogId = new("c3a1e6b4-7d28-4f5a-9b16-2e8d4c0a91f7");
 
-    public static void ChooseFolder(Window owner, string? current, Action<string> apply, Action? whenEmpty = null)
+    public static void ChooseFolder(Window owner, string? current, Action<string> apply, Action? whenEmpty = null, string? title = null)
     {
         // Der Dialog darf nicht im selben Mausklick aufgehen. Sonst trifft
         // das Loslassen den Dialog und er schließt sich sofort wieder.
         owner.Dispatcher.BeginInvoke(() =>
         {
-            var chosen = ShowFolder(owner, current);
+            var chosen = ShowFolder(owner, current, title);
             if (!string.IsNullOrWhiteSpace(chosen))
                 apply(chosen);
             else
@@ -78,11 +78,11 @@ public static class Prompt
         }, DispatcherPriority.Input);
     }
 
-    static string? ShowFolder(Window owner, string? current)
+    static string? ShowFolder(Window owner, string? current, string? title)
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = UiText.Get("pick-folder"),
+            Title = title ?? UiText.Get("pick-folder"),
             ClientGuid = FolderDialogId,
             DefaultDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         };
