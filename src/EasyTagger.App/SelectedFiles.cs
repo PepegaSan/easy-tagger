@@ -387,11 +387,8 @@ static class SelectedFiles
             var window = AutomationElement.FromHandle(foreground);
             if (window == null)
                 return;
-            var selectedFile = new AndCondition(
-                new PropertyCondition(AutomationElement.NameProperty, "Span.ViewModels.FileViewModel"),
-                new PropertyCondition(SelectionItemPattern.IsSelectedProperty, true));
-            var file = window.FindFirst(TreeScope.Descendants, selectedFile);
-            if (file == null)
+            var file = SelectedFileNearFocus(window, foreground);
+            if (file == null || file.Current.HasKeyboardFocus)
                 return;
             SetForegroundWindow(foreground);
             file.SetFocus();
@@ -401,6 +398,37 @@ static class SelectedFiles
         {
             // The file row disappeared while the hotkey was read.
         }
+    }
+
+    // SPAN Finder can show several Miller panes, each with its own selected file. The file meant is
+    // the one closest to the keyboard focus, so the search starts there and widens one parent at a
+    // time. Several files at the same step means the active pane is unclear, and focus stays put.
+    static AutomationElement? SelectedFileNearFocus(AutomationElement window, IntPtr windowHandle)
+    {
+        var selectedFile = new AndCondition(
+            new PropertyCondition(AutomationElement.NameProperty, "Span.ViewModels.FileViewModel"),
+            new PropertyCondition(SelectionItemPattern.IsSelectedProperty, true));
+
+        var scopes = new List<AutomationElement>();
+        for (var walk = AutomationElement.FocusedElement; walk != null; walk = TreeWalker.ControlViewWalker.GetParent(walk))
+        {
+            scopes.Add(walk);
+            if (walk.Current.NativeWindowHandle == windowHandle.ToInt32())
+                break;
+        }
+        // Focus outside this window: searching from the desktop down would take far too long.
+        if (scopes.Count == 0 || scopes[^1].Current.NativeWindowHandle != windowHandle.ToInt32())
+            scopes = [window];
+
+        foreach (var scope in scopes)
+        {
+            var files = scope.FindAll(TreeScope.Subtree, selectedFile);
+            if (files.Count == 1)
+                return files[0];
+            if (files.Count > 1)
+                return null;
+        }
+        return null;
     }
 
     static bool IsSpanFinder(IntPtr hwnd)

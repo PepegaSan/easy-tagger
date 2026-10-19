@@ -17,7 +17,11 @@
         <SolidColorBrush x:Key="LabelCyan" Color="#4EC8E8"/>
         <SolidColorBrush x:Key="SignalRed" Color="#E80F3F"/>
         <SolidColorBrush x:Key="OnRed" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="OnCyan" Color="#050505"/>
         <SolidColorBrush x:Key="Field" Color="#1B1B1B"/>
+        <SolidColorBrush x:Key="ModelEdge" Color="#7A1730"/>
+        <SolidColorBrush x:Key="CategoryBg" Color="#0A1C22"/>
+        <SolidColorBrush x:Key="CategoryBorder" Color="#1F4D59"/>
 
         <!-- The default focus rectangle is black and dotted, which disappears on this background. -->
         <Style x:Key="FocusRing">
@@ -74,7 +78,84 @@
             </Setter>
         </Style>
 
-        <Style x:Key="ModelCard" TargetType="Button" BasedOn="{StaticResource Chip}">
+        <!-- Models: a thin red edge and a faint red glow. The glow is its own layer behind the card,
+             because an effect on the card itself would switch off ClearType for its text. -->
+        <Style x:Key="ModelChip" TargetType="Button" BasedOn="{StaticResource Chip}">
+            <Setter Property="BorderBrush" Value="{StaticResource ModelEdge}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border Background="{StaticResource ChipBg}" CornerRadius="6" IsHitTestVisible="False">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#E80F3F" BlurRadius="9" ShadowDepth="0" Opacity="0.35"/>
+                                </Border.Effect>
+                            </Border>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                            <Border x:Name="Hover" Background="White" Opacity="0" CornerRadius="6" IsHitTestVisible="False"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="0.07"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="0.15"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Categories: smaller cyan pills, so they read as filters above the models and not as one of them. -->
+        <Style x:Key="CategoryChip" TargetType="Button" BasedOn="{StaticResource Chip}">
+            <Setter Property="Background" Value="{StaticResource CategoryBg}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource CategoryBorder}"/>
+            <Setter Property="Foreground" Value="{StaticResource LabelCyan}"/>
+            <Setter Property="Padding" Value="13,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="15"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                            <Border x:Name="Hover" Background="White" Opacity="0" CornerRadius="15" IsHitTestVisible="False"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="0.07"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="0.15"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ModelCard" TargetType="Button" BasedOn="{StaticResource ModelChip}">
             <Setter Property="MinWidth" Value="132"/>
             <Setter Property="MinHeight" Value="64"/>
             <Setter Property="Margin" Value="0,0,8,8"/>

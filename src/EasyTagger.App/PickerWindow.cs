@@ -28,6 +28,7 @@ public sealed class PickerWindow : Window
     // Fav and "Alle" hold every model, so the list scrolls instead of pushing the window off the screen.
     // The cap only holds while the window fits its content; after that the list fills the window.
     const double ListHeight = 380;
+    const double GlowRoom = 5;
     readonly ScrollViewer _list = new()
     {
         MaxHeight = ListHeight,
@@ -52,6 +53,8 @@ public sealed class PickerWindow : Window
     Button? _default;
     // The button that shows the cyan border, so Enter never picks something unseen.
     Button? _marked;
+    // Its border from before, so unmarking puts back the red of a chosen model or the cyan of a chosen category.
+    object? _markedBorder;
 
     public PickerWindow(TagConfig config, IReadOnlyList<string> files, Action<FaceModel, string> onChosen)
     {
@@ -128,7 +131,10 @@ public sealed class PickerWindow : Window
         DockPanel.SetDock(bottom, Dock.Bottom);
         root.Children.Add(top);
         root.Children.Add(bottom);
-        _list.Content = new StackPanel { Children = { _rows, _buttons } };
+        // The scroll area clips at its edge. It reaches a few pixels further out and the content moves back
+        // in by the same amount, so the red glow of the models at the edge stays whole and nothing shifts.
+        _list.Margin = new Thickness(-GlowRoom, -GlowRoom, -GlowRoom, 0);
+        _list.Content = new StackPanel { Margin = new Thickness(GlowRoom, GlowRoom, GlowRoom, 0), Children = { _rows, _buttons } };
         root.Children.Add(_list);
         Content = root;
         // Once the height is frozen, only a drag of the border changes the size.
@@ -352,7 +358,7 @@ public sealed class PickerWindow : Window
             // The number comes from the model itself, so it stays put when the list order changes.
             var label = current.Key is int key ? $"{key}  {current.Name}" : current.Name;
             var active = current.Name == view.ActiveModel;
-            var button = Card(label, active, new Slot("model:" + current.Name, active, current));
+            var button = Card(label, active, new Slot("model:" + current.Name, active, current), "ModelChip");
             if (!string.IsNullOrWhiteSpace(current.Folder))
                 button.ToolTip = current.Folder;
             button.Click += (_, _) => Choose(current);
@@ -376,7 +382,7 @@ public sealed class PickerWindow : Window
     void AddFilter(string id, string label)
     {
         var active = id == _filter;
-        var button = Card(label, active, new Slot("filter:" + id, active, null));
+        var button = Card(label, active, new Slot("filter:" + id, active, null), "CategoryChip");
         button.MinHeight = 0;
         button.MinWidth = 0;
         button.Margin = new Thickness(0, 0, 8, 8);
@@ -452,8 +458,8 @@ public sealed class PickerWindow : Window
     {
         if (_marked != null)
         {
-            if (_marked.Tag is Slot { Active: true })
-                _marked.BorderBrush = Res("SignalRed");
+            if (_markedBorder is Brush border)
+                _marked.BorderBrush = border;
             else
                 _marked.ClearValue(BorderBrushProperty);
             _marked.ClearValue(BorderThicknessProperty);
@@ -461,7 +467,9 @@ public sealed class PickerWindow : Window
         _marked = button;
         if (button != null)
         {
-            button.BorderBrush = Res("LabelCyan");
+            _markedBorder = button.ReadLocalValue(BorderBrushProperty);
+            // On a chosen category, which is cyan already, a cyan border would vanish.
+            button.BorderBrush = Equals(_markedBorder, Res("LabelCyan")) ? Res("Text") : Res("LabelCyan");
             button.BorderThickness = new Thickness(2);
             // The model used last can sit far down the list. After a rebuild the layout comes first.
             Dispatcher.BeginInvoke(() => button.BringIntoView(), System.Windows.Threading.DispatcherPriority.Loaded);
@@ -506,12 +514,12 @@ public sealed class PickerWindow : Window
         _onChosen(model, _profile);
     }
 
-    Button Card(string text, bool active, Slot? slot = null)
+    Button Card(string text, bool active, Slot? slot = null, string style = "Chip")
     {
         var button = new Button
         {
             Content = text,
-            Style = (Style)Application.Current.FindResource("Chip"),
+            Style = (Style)Application.Current.FindResource(style),
             Margin = new Thickness(0, 0, 8, 8),
             MinWidth = 96,
             Tag = slot,
@@ -520,9 +528,11 @@ public sealed class PickerWindow : Window
         };
         if (active)
         {
-            button.Background = Res("SignalRed");
-            button.BorderBrush = Res("SignalRed");
-            button.Foreground = Res("OnRed");
+            // A chosen category lights up cyan, so it never looks like a model picked in red.
+            var category = style == "CategoryChip";
+            button.Background = Res(category ? "LabelCyan" : "SignalRed");
+            button.BorderBrush = Res(category ? "LabelCyan" : "SignalRed");
+            button.Foreground = Res(category ? "OnCyan" : "OnRed");
         }
         button.GotKeyboardFocus += (_, _) => Mark(button);
         button.MouseEnter += (_, _) => _target.Text = TargetText(Preview(button));
