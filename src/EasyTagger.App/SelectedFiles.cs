@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.CSharp.RuntimeBinder;
 using Forms = System.Windows.Forms;
 using System.Text;
 using System.Windows;
@@ -15,6 +16,19 @@ static class SelectedFiles
     const byte VkControl = 0x11;
     const byte VkC = 0x43;
     const uint KeyUp = 2;
+
+    // Text, images and copied files. "Preferred DropEffect" keeps a cut in Explorer a cut.
+    static readonly string[] KeptFormats =
+    [
+        Forms.DataFormats.UnicodeText,
+        Forms.DataFormats.Text,
+        Forms.DataFormats.Rtf,
+        Forms.DataFormats.Html,
+        Forms.DataFormats.CommaSeparatedValue,
+        Forms.DataFormats.FileDrop,
+        "Preferred DropEffect",
+        Forms.DataFormats.Bitmap,
+    ];
 
     public static string LastNote { get; private set; } = "";
 
@@ -56,13 +70,13 @@ static class SelectedFiles
                         paths.Add((string)items.Item(itemIndex).Path);
                     break;
                 }
-                catch (COMException)
+                catch (Exception ex) when (ex is COMException or RuntimeBinderException)
                 {
-                    // This shell window is not a folder view.
+                    // This shell window is not a folder view, for example the Control Panel.
                 }
             }
         }
-        catch (COMException)
+        catch (Exception ex) when (ex is COMException or RuntimeBinderException)
         {
             return [];
         }
@@ -72,17 +86,7 @@ static class SelectedFiles
 
     static List<string> FromClipboardCopy()
     {
-        Forms.IDataObject? backup = null;
-        try
-        {
-            if (Forms.Clipboard.ContainsText() || Forms.Clipboard.ContainsFileDropList())
-                backup = Forms.Clipboard.GetDataObject();
-        }
-        catch (Exception ex) when (ex is COMException or ExternalException)
-        {
-            backup = null;
-        }
-
+        var backup = SnapshotClipboard();
         if (!TryEmptyClipboard())
             return [];
 
@@ -128,6 +132,44 @@ static class SelectedFiles
         }
 
         return ExistingFiles(paths);
+    }
+
+    // The object GetDataObject returns reads the clipboard live, so after Ctrl+C it would hand back
+    // the file paths, and putting it back fails. The data is copied out while it is still there.
+    static Forms.DataObject? SnapshotClipboard()
+    {
+        Forms.IDataObject? live;
+        try
+        {
+            live = Forms.Clipboard.GetDataObject();
+        }
+        catch (Exception ex) when (ex is COMException or ExternalException)
+        {
+            return null;
+        }
+        if (live == null)
+            return null;
+
+        var copy = new Forms.DataObject();
+        var kept = false;
+        foreach (var format in KeptFormats)
+        {
+            try
+            {
+                if (!live.GetDataPresent(format, autoConvert: false))
+                    continue;
+                var data = live.GetData(format, autoConvert: false);
+                if (data == null)
+                    continue;
+                copy.SetData(format, autoConvert: false, data);
+                kept = true;
+            }
+            catch (Exception ex) when (ex is COMException or ExternalException or ArgumentException or OutOfMemoryException)
+            {
+                // This format cannot be read. The others are still worth keeping.
+            }
+        }
+        return kept ? copy : null;
     }
 
     static void TapCopy()

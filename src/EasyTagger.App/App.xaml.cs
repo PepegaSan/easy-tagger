@@ -20,6 +20,14 @@ public partial class App : Application
         }
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        // An error nothing else caught must not take the tray icon and the hotkey down with it.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            if (MainWindow is not EasyTagger.App.MainWindow main)
+                return;
+            main.ReportError(args.Exception);
+            args.Handled = true;
+        };
         ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "EasyTagger",

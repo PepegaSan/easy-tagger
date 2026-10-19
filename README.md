@@ -8,13 +8,13 @@ The window uses a dark layout: black background, a red section bar, chip buttons
 
 Double-click `start.bat`. That requires the .NET 8 SDK. Settings are stored in `%LocalAppData%\EasyTagger\config.json`, outside the project folder.
 
-The default hotkey is `Ctrl+Alt+E`. It opens the model or download picker even when the window is in the tray. Closing the window sends it to the tray. Quit from the tray menu.
+The default hotkey is `Win+Shift+E`. It opens the model or download picker for the files selected in Explorer, even when the window is in the tray. Dragging files onto the window opens the same picker. In the picker, typing searches the models, Enter picks, and 1–9 pick a model that has a number key. To change the hotkey, click the field under Settings and press the new combination. Closing the window sends it to the tray. Quit from the tray menu.
 
 ## FFmpeg
 
-Re-encoding is optional. When it is on, Easy Tagger needs both `ffmpeg` and `ffprobe`. It looks for them on your PATH, and also in `C:\ffmpeg` or `C:\Program Files\ffmpeg\bin`.
+Re-encoding is optional. When it is on, Easy Tagger needs both `ffmpeg` and `ffprobe`. It looks beside `EasyTagger.App.exe`, then on your PATH, then in `C:\ffmpeg` or `C:\Program Files\ffmpeg\bin`. Files are re-encoded one after another. The status row and the tray tooltip show the progress, and Cancel stops the running file and the ones still waiting. Those files stay tagged, just not re-encoded.
 
-[Install FFmpeg on Windows and add it to PATH](https://ffmpeg-cookbook.com/en/articles/install-ffmpeg/) explains the download and the PATH setting in plain steps. The essentials build is enough. After changing PATH, quit Easy Tagger from the tray and start it again.
+Double-click `install-ffmpeg.bat` to install the essentials build and put it on your PATH. [Install FFmpeg on Windows and add it to PATH](https://ffmpeg-cookbook.com/en/articles/install-ffmpeg/) explains the same steps by hand. After that, quit Easy Tagger from the tray and start it again.
 
 ## Profiles
 

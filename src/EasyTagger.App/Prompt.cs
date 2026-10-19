@@ -38,10 +38,28 @@ public static class Prompt
         var panel = new StackPanel { Margin = new Thickness(16) };
         panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(input);
-        panel.Children.Add(ok);
+        panel.Children.Add(Buttons(owner, ok));
         window.Content = panel;
         window.Loaded += (_, _) => input.Focus();
         return window.ShowDialog() == true ? result : null;
+    }
+
+    // OK plus a Cancel that Esc also triggers, the way ModelEditorWindow already works.
+    public static StackPanel Buttons(Window owner, Button ok)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        row.Children.Add(ok);
+        row.Children.Add(new Button
+        {
+            Content = UiText.Get("cancel"),
+            Style = (Style)owner.FindResource("Chip"),
+            IsCancel = true,
+        });
+        return row;
     }
 
     static readonly Guid FolderDialogId = new("c3a1e6b4-7d28-4f5a-9b16-2e8d4c0a91f7");

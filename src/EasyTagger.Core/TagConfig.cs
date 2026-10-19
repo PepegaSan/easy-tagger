@@ -88,7 +88,8 @@ public sealed class TagConfig
     public string ActiveModel { get; set; } = "";
     public bool CloseToTray { get; set; } = true;
     public bool StartInTray { get; set; }
-    public string Hotkey { get; set; } = "Ctrl+Alt+E";
+    // Not Ctrl+Alt+E: on German keyboards that is AltGr+E, and the hotkey would swallow every €.
+    public string Hotkey { get; set; } = "Win+Shift+E";
     public bool ReencodeEnabled { get; set; }
     public string ReencodeMode { get; set; } = "crf";
     public int ReencodeCrf { get; set; } = 22;
@@ -103,10 +104,6 @@ public sealed class TagConfig
     public double WindowTop { get; set; }
     public double WindowWidth { get; set; }
     public double WindowHeight { get; set; }
-    public string BatchRoot { get; set; } = "";
-    public bool BatchUseFolderNames { get; set; } = true;
-    public string BatchTagSeparator { get; set; } = " -- ";
-    public List<BatchRule> BatchRules { get; set; } = [];
     public string ModelBatchFolder { get; set; } = "";
     public bool ModelBatchFolderTag { get; set; }
     public DownloadPicker DownloadPicker { get; set; } = DownloadPicker.CreateDefault();
@@ -152,10 +149,6 @@ public sealed class TagConfig
             ActiveProfile = ProfileModels;
         if (Action is not ("move" or "rename_only" or "copy"))
             Action = "move";
-        if (string.IsNullOrWhiteSpace(BatchTagSeparator))
-            BatchTagSeparator = EasyTagger.Core.BatchRules.Separator;
-        BatchRules ??= [];
-        EasyTagger.Core.BatchRules.Normalize(BatchRules);
         Profiles ??= new Dictionary<string, ProfileState>(StringComparer.Ordinal);
         EnsureProfiles();
     }
@@ -270,6 +263,7 @@ public sealed class TagConfig
             Folder = model.Folder,
             Categories = model.Categories.ToList(),
             CategoriesInName = model.CategoriesInName.ToList(),
+            Key = model.Key,
         }).ToList();
 
     static DownloadPicker ClonePicker(DownloadPicker picker)

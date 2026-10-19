@@ -44,6 +44,29 @@ public class RenamerTests
     }
 
     [Fact]
+    public void PlainModelNameCountsAsTagged()
+    {
+        Assert.True(Renamer.IsTaggedWith("Vanessa Hu_Realistic.mp4", "Realistic"));
+        Assert.True(Renamer.IsTaggedWith("Vanessa Hu_Realistic (2).mp4", "Realistic"));
+        Assert.False(Renamer.IsTaggedWith("Vanessa Hu_260712214720_Hyb.mp4", "Realistic"));
+        Assert.False(Renamer.IsTaggedWith("Unrealistic.mp4", "Realistic"));
+    }
+
+    [Fact]
+    public void UndoAfterReencodeKeepsTheMp4Extension()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "clip.mkv");
+        var encoded = Path.Combine(root, "out", "clip_[Hund].mp4");
+        Directory.CreateDirectory(Path.GetDirectoryName(encoded)!);
+        File.WriteAllText(encoded, "video");
+        var restored = Renamer.UndoTag(source, encoded, "move");
+        Assert.Equal(Path.Combine(root, "clip.mp4"), restored);
+        Assert.True(File.Exists(restored));
+    }
+
+    [Fact]
     public void MoveRenamesIntoTheModelFolder()
     {
         var root = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
@@ -198,6 +221,16 @@ public class ConfigTests
     }
 
     [Fact]
+    public void ProfileSwitchKeepsTheNumberKeys()
+    {
+        var config = TagConfig.CreateDefault();
+        config.Models[0].Key = 3;
+        config.SwitchProfile(TagConfig.ProfileDownloads);
+        config.SwitchProfile(TagConfig.ProfileModels);
+        Assert.Equal(3, config.Models[0].Key);
+    }
+
+    [Fact]
     public void SaveRoundTripUsesItsOwnFile()
     {
         var path = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"), "config.json");
@@ -221,14 +254,14 @@ public class ConfigTests
     }
 
     [Fact]
-    public void BatchSettingsStayWhenTheProfileChanges()
+    public void AnOldFileWithBatchRulesStillLoads()
     {
-        var config = TagConfig.CreateDefault();
-        config.BatchRoot = @"D:\Library";
-        config.BatchRules.Add(new BatchRule { Match = "Hund", Tags = "hund" });
-        config.SwitchProfile(TagConfig.ProfileDownloads);
-        Assert.Equal(@"D:\Library", config.BatchRoot);
-        Assert.Single(config.BatchRules);
+        var path = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"), "config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{ "hotkey": "F20", "batch_root": "D:\\Library", "batch_rules": [ { "match": "Hund", "tags": "hund" } ] }""");
+        var loaded = ConfigStore.LoadOrCreate(path);
+        Assert.Equal("F20", loaded.Hotkey);
+        Assert.False(File.Exists(path + ".broken"));
     }
 }
 
@@ -267,32 +300,8 @@ public class ModelFolderTests
     }
 }
 
-public class BatchRuleTests
+public class FileScanTests
 {
-    [Fact]
-    public void NewFileGetsBracketTagsAfterTheTitle()
-    {
-        Assert.Equal("Clip -- [hund] [sitzen]", BatchRules.BuildTaggedStem("Clip.mp4", ["hund", "sitzen"]));
-        Assert.Equal("Clip -- [hund] [sitzen]", BatchRules.BuildTaggedStem("Clip -- [hund].mp4", ["sitzen", "hund"]));
-        Assert.Equal("ABCDEFGHIJKLMNOPQRST -- [hund]", BatchRules.BuildTaggedStem("ABCDEFGHIJKLMNOPQRSTUVWXYZ.mp4", ["hund"]));
-    }
-
-    [Fact]
-    public void SubfoldersBecomeTagsAndRulesRenameInPlace()
-    {
-        var root = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
-        var hund = Path.Combine(root, "clips", "Hund");
-        Directory.CreateDirectory(hund);
-        var source = Path.Combine(hund, "one.mp4");
-        File.WriteAllText(source, "video");
-        var preview = BatchRules.Preview(root, [], [".mp4"], useFolderNames: true);
-        var item = Assert.Single(preview);
-        Assert.Equal("one -- [clips] [hund].mp4", item.NewName);
-        var target = BatchRules.Apply(item);
-        Assert.Equal(Path.Combine(hund, "one -- [clips] [hund].mp4"), target);
-        Assert.True(File.Exists(target));
-    }
-
     [Fact]
     public void ALockedFileIsReportedInUse()
     {
@@ -304,5 +313,59 @@ public class BatchRuleTests
             Assert.True(FileScan.IsFileInUse(path));
         }
         Assert.False(FileScan.IsFileInUse(path));
+    }
+}
+
+public class EncoderLookupTests
+{
+    [Fact]
+    public void FfmpegBesideTheAppIsUsed()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var ffmpeg = Path.Combine(dir, "ffmpeg.exe");
+        File.WriteAllText(ffmpeg, "");
+        var found = Encoder.ResolveTool("", "ffmpeg", dir, []);
+        Assert.Equal(Path.GetFullPath(ffmpeg), found);
+    }
+
+    [Fact]
+    public void AChosenFfmpegPathWinsOverTheCopyBesideTheApp()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
+        var customDir = Path.Combine(dir, "custom");
+        Directory.CreateDirectory(customDir);
+        var beside = Path.Combine(dir, "ffmpeg.exe");
+        var chosen = Path.Combine(customDir, "ffmpeg.exe");
+        File.WriteAllText(beside, "");
+        File.WriteAllText(chosen, "");
+        var found = Encoder.ResolveTool(chosen, "ffmpeg", dir, []);
+        Assert.Equal(Path.GetFullPath(chosen), found);
+    }
+
+    [Fact]
+    public void ReencodeNeverTargetsTheMp4OfAnotherVideo()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "easytagger-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var mkv = Path.Combine(dir, "Clip_[Hund].mkv");
+        var other = Path.Combine(dir, "Clip_[Hund].mp4");
+        var alone = Path.Combine(dir, "Solo_[Hund].mp4");
+        File.WriteAllText(mkv, "a");
+        File.WriteAllText(other, "b");
+        File.WriteAllText(alone, "c");
+        Assert.Equal(Path.Combine(dir, "Clip_[Hund] (2).mp4"), Encoder.OutputPath(mkv));
+        Assert.Equal(alone, Encoder.OutputPath(alone));
+    }
+
+    [Fact]
+    public void ProgressLinesGiveSeconds()
+    {
+        Assert.Equal(12.5, Encoder.ProgressSeconds("out_time_us=12500000"));
+        Assert.Equal(12.5, Encoder.ProgressSeconds("out_time_ms=12500000"));
+        Assert.Null(Encoder.ProgressSeconds("out_time_us=N/A"));
+        Assert.Null(Encoder.ProgressSeconds("out_time_us=-5000"));
+        Assert.Null(Encoder.ProgressSeconds("frame=120"));
+        Assert.Null(Encoder.ProgressSeconds("progress=end"));
     }
 }
