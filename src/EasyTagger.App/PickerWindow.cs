@@ -20,11 +20,21 @@ public sealed class PickerWindow : Window
     readonly WrapPanel _tabs = new() { VerticalAlignment = VerticalAlignment.Center };
     readonly TextBlock _keys = new() { FontSize = 12, Margin = new Thickness(0, 10, 0, 0) };
     UIElement? _searchBox;
-    string _filter = ModelGroups.AllId;
+    string _filter = ModelGroups.FavId;
     readonly WrapPanel _chips = new();
     // Downloads: one labelled row each for type, target and content, so the three never blur together.
     readonly StackPanel _rows = new();
     readonly WrapPanel _buttons = new();
+    // Fav and "Alle" hold every model, so the list scrolls instead of pushing the window off the screen.
+    // The cap only holds while the window fits its content; after that the list fills the window.
+    const double ListHeight = 380;
+    readonly ScrollViewer _list = new()
+    {
+        MaxHeight = ListHeight,
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+    };
+    // Set once the size comes from the user, saved or dragged. Then the window keeps it, even across tabs.
+    bool _userSize;
     readonly TextBox _search = new() { Margin = new Thickness(0, 0, 0, 12) };
     readonly TextBlock _target = new()
     {
@@ -51,15 +61,28 @@ public sealed class PickerWindow : Window
         _profile = config.ActiveProfile;
         Title = "Easy Tagger";
         Width = 560;
-        SizeToContent = SizeToContent.Height;
-        MaxHeight = 680;
+        MinWidth = 360;
+        MinHeight = 300;
+        if (config.PickerWidth >= MinWidth && config.PickerHeight >= MinHeight)
+        {
+            // A smaller screen than last time must not push the window off it.
+            var area = SystemParameters.WorkArea;
+            Width = Math.Min(config.PickerWidth, area.Width);
+            Height = Math.Min(config.PickerHeight, area.Height);
+            _userSize = true;
+            _list.MaxHeight = double.PositiveInfinity;
+        }
+        else
+        {
+            SizeToContent = SizeToContent.Height;
+        }
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Topmost = true;
         FontFamily = (FontFamily)Application.Current.FindResource("AppFont");
         Background = Res("Bg");
         Foreground = Res("Text");
 
-        var root = new StackPanel { Margin = new Thickness(16) };
+        var top = new StackPanel();
         // The tabs sit top right, like the profile buttons in the main window.
         var header = new DockPanel();
         DockPanel.SetDock(_tabs, Dock.Right);
@@ -72,8 +95,8 @@ public sealed class PickerWindow : Window
             FontSize = 16,
             VerticalAlignment = VerticalAlignment.Center,
         });
-        root.Children.Add(header);
-        root.Children.Add(new TextBlock
+        top.Children.Add(header);
+        top.Children.Add(new TextBlock
         {
             Text = string.Format(UiText.Get("picker-files"), files.Count, Path.GetFileName(files[0])),
             Foreground = Res("Muted"),
@@ -81,18 +104,12 @@ public sealed class PickerWindow : Window
             Margin = new Thickness(0, 4, 0, 12),
         });
         _searchBox = SearchBox();
-        root.Children.Add(_searchBox);
-        root.Children.Add(_chips);
-        root.Children.Add(_rows);
-        // With "Alle" the list gets long, so it scrolls instead of pushing the window off the screen.
-        root.Children.Add(new ScrollViewer
-        {
-            Content = _buttons,
-            MaxHeight = 380,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        });
+        top.Children.Add(_searchBox);
+        top.Children.Add(_chips);
+
+        var bottom = new StackPanel();
         // Below the list, so the preview changing never moves a button.
-        root.Children.Add(_target);
+        bottom.Children.Add(_target);
         var open = Card(UiText.Get("open-main"), false);
         open.HorizontalAlignment = HorizontalAlignment.Left;
         open.Margin = new Thickness(0, 8, 0, 0);
@@ -101,20 +118,35 @@ public sealed class PickerWindow : Window
             if (Application.Current.MainWindow is MainWindow main)
                 main.ShowFromTray();
         };
-        root.Children.Add(open);
+        bottom.Children.Add(open);
         _keys.Foreground = Res("Muted");
-        root.Children.Add(_keys);
+        bottom.Children.Add(_keys);
+
+        // The list fills what the rest leaves, so a taller window shows more models.
+        var root = new DockPanel { Margin = new Thickness(16) };
+        DockPanel.SetDock(top, Dock.Top);
+        DockPanel.SetDock(bottom, Dock.Bottom);
+        root.Children.Add(top);
+        root.Children.Add(bottom);
+        _list.Content = new StackPanel { Children = { _rows, _buttons } };
+        root.Children.Add(_list);
         Content = root;
-        KeyDown += OnKeyDown;
-        PreviewKeyDown += (_, e) =>
+        // Once the height is frozen, only a drag of the border changes the size.
+        SizeChanged += (_, _) =>
         {
-            // Ctrl+Tab before focus navigation sees the Tab.
-            if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
-            {
-                ShowProfile(_downloads ? TagConfig.ProfileModels : TagConfig.ProfileDownloads);
-                e.Handled = true;
-            }
+            if (IsLoaded && SizeToContent == SizeToContent.Manual)
+                _userSize = true;
         };
+        Closing += (_, _) =>
+        {
+            if (!_userSize || WindowState != WindowState.Normal)
+                return;
+            _config.PickerWidth = ActualWidth;
+            _config.PickerHeight = ActualHeight;
+        };
+        // PreviewKeyDown on the window, so digits and Enter still work while the search box has focus.
+        // A TextBox marks KeyDown handled and the bubbling handler on the window never runs.
+        PreviewKeyDown += OnPreviewKeyDown;
         PreviewTextInput += OnTextInput;
         Loaded += (_, _) =>
         {
@@ -129,7 +161,7 @@ public sealed class PickerWindow : Window
     {
         var switching = profile != _profile;
         _profile = profile;
-        _filter = ModelGroups.AllId;
+        _filter = ModelGroups.FavId;
         _search.Clear();
         _tabs.Children.Clear();
         AddTab(TagConfig.ProfileModels, "models");
@@ -139,9 +171,12 @@ public sealed class PickerWindow : Window
         Rebuild();
         if (!switching)
             return;
-        // The other tab has a different height; let it size itself once, then hold still again.
-        SizeToContent = SizeToContent.Height;
         FocusStart();
+        if (_userSize)
+            return;
+        // The other tab has a different height; let it size itself once, then hold still again.
+        _list.MaxHeight = ListHeight;
+        SizeToContent = SizeToContent.Height;
         FreezeHeight();
     }
 
@@ -162,10 +197,14 @@ public sealed class PickerWindow : Window
             _search.Focus();
     }
 
-    // The first layout sets the height. After that a shorter result list must not make the window jump.
+    // The first layout sets the height. After that a shorter result list must not make the window jump,
+    // and the list takes whatever height the window gets.
     void FreezeHeight() =>
-        Dispatcher.BeginInvoke(() => SizeToContent = SizeToContent.Manual,
-            System.Windows.Threading.DispatcherPriority.ContextIdle);
+        Dispatcher.BeginInvoke(() =>
+        {
+            SizeToContent = SizeToContent.Manual;
+            _list.MaxHeight = double.PositiveInfinity;
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
 
     // Typing while a model button has focus still goes into the search.
     void OnTextInput(object sender, TextCompositionEventArgs e)
@@ -199,54 +238,63 @@ public sealed class PickerWindow : Window
             Rebuild();
         };
         _search.GotKeyboardFocus += (_, _) => Mark(_default);
-        _search.PreviewKeyDown += (_, e) =>
-        {
-            switch (e.Key)
-            {
-                case Key.Enter when _default != null:
-                    _default.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    e.Handled = true;
-                    break;
-                case Key.Down when _default != null:
-                    _default.Focus();
-                    e.Handled = true;
-                    break;
-                case Key.Escape when _search.Text.Length > 0:
-                    _search.Clear();
-                    e.Handled = true;
-                    break;
-            }
-        };
         return new Grid { Children = { _search, hint } };
     }
 
-    void OnKeyDown(object sender, KeyEventArgs e)
+    void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Tab && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            ShowProfile(_downloads ? TagConfig.ProfileModels : TagConfig.ProfileDownloads);
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.Escape)
         {
+            if (!_downloads && _search.IsKeyboardFocused && _search.Text.Length > 0)
+            {
+                _search.Clear();
+                e.Handled = true;
+                return;
+            }
             Close();
             e.Handled = true;
             return;
         }
 
-        // Enter presses the focused button, the way Space already does.
-        if (e.Key == Key.Enter && Keyboard.FocusedElement is Button focused)
+        if (e.Key == Key.Enter)
         {
-            focused.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (!_downloads && _search.IsKeyboardFocused && _default != null)
+            {
+                _default.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                e.Handled = true;
+                return;
+            }
+            if (Keyboard.FocusedElement is Button focused)
+            {
+                focused.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                e.Handled = true;
+            }
+            return;
+        }
+
+        if (e.Key == Key.Down && !_downloads && _search.IsKeyboardFocused && _default != null)
+        {
+            _default.Focus();
             e.Handled = true;
             return;
         }
 
         // Digits pick by number only while nothing is typed, so a name with a digit stays searchable.
-        if (_search.Text.Length > 0)
+        if (_search.Text.Length > 0 || _downloads)
             return;
         var number = DigitValue(e.Key);
-        var keyed = number > 0 && !_downloads ? View.Models.FirstOrDefault(model => model.Key == number) : null;
-        if (keyed != null)
-        {
-            Choose(keyed);
-            e.Handled = true;
-        }
+        var keyed = number > 0 ? View.Models.FirstOrDefault(model => model.Key == number) : null;
+        if (keyed == null)
+            return;
+        Choose(keyed);
+        e.Handled = true;
     }
 
     // Returns 1–9 for the digit keys and 0 for anything else.
@@ -287,8 +335,9 @@ public sealed class PickerWindow : Window
     {
         var view = View;
         var groups = ModelGroups.AvailableGroups(view.Models, view.ModelCategories, UiText.Get("other"));
-        if (_filter != ModelGroups.AllId && groups.All(chip => chip.Id != _filter))
-            _filter = ModelGroups.AllId;
+        if (_filter is not (ModelGroups.FavId or ModelGroups.AllId) && groups.All(chip => chip.Id != _filter))
+            _filter = ModelGroups.FavId;
+        AddFilter(ModelGroups.FavId, UiText.Get("fav"));
         AddFilter(ModelGroups.AllId, $"{UiText.Get("all")} ({view.Models.Count})");
         foreach (var chip in groups)
             AddFilter(chip.Id, $"{chip.Label} ({chip.Count})");
@@ -447,8 +496,12 @@ public sealed class PickerWindow : Window
     void Choose(FaceModel model)
     {
         // The model picked here is the one the next picker offers first, so Enter repeats it.
+        // Each pick also moves it up in Fav.
         if (!_downloads && View.Models.Contains(model))
+        {
             View.ActiveModel = model.Name;
+            model.Uses++;
+        }
         Close();
         _onChosen(model, _profile);
     }

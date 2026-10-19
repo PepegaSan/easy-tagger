@@ -1562,7 +1562,8 @@ public partial class MainWindow : Window
         if (msg == NativeHotkey.WmHotkey)
         {
             handled = true;
-            Dispatcher.BeginInvoke(OpenPicker);
+            var foreground = SelectedFiles.ForegroundNow();
+            Dispatcher.BeginInvoke(() => OpenPicker(foreground));
         }
         else if (SingleInstance.ShowMessage != 0 && (uint)msg == SingleInstance.ShowMessage)
         {
@@ -1572,14 +1573,14 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    void OpenPicker()
+    void OpenPicker(IntPtr foregroundAtHotkey = default)
     {
         if (_picker != null)
         {
             _picker.Activate();
             return;
         }
-        var files = SelectedFiles.Capture();
+        var files = SelectedFiles.Capture(foregroundAtHotkey);
         if (files.Count == 0)
         {
             var message = UiText.Get("no-selection");

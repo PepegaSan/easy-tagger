@@ -162,6 +162,41 @@ public class ModelGroupTests
         Assert.Equal("Hund", hund.Label);
         Assert.Equal(2, hund.Count);
     }
+
+    [Fact]
+    public void ChipsSortByNameWithOtherLast()
+    {
+        var groups = ModelGroups.AvailableGroups([
+            new FaceModel { Name = "[Anna] [Studio]" },
+            new FaceModel { Name = "[Bea] [Studio]" },
+            new FaceModel { Name = "[Cleo] [Garten]" },
+            new FaceModel { Name = "[Dora]" },
+        ], [new ModelCategory { Id = "auto", Label = "Auto" }], "Other");
+        Assert.Equal(["Auto", "Garten", "Studio", "Other"], groups.Select(chip => chip.Label));
+    }
+
+    [Fact]
+    public void ModelsSortByName()
+    {
+        var models = ModelGroups.Filter([
+            new FaceModel { Name = "[cleo]" },
+            new FaceModel { Name = "[Anna]" },
+            new FaceModel { Name = "[Bea]" },
+        ], ModelGroups.AllId);
+        Assert.Equal(["[Anna]", "[Bea]", "[cleo]"], models.Select(model => model.Name));
+    }
+
+    [Fact]
+    public void FavPutsTheMostUsedFirst()
+    {
+        var models = ModelGroups.Filter([
+            new FaceModel { Name = "[Anna]", Uses = 2 },
+            new FaceModel { Name = "[Cleo]" },
+            new FaceModel { Name = "[Bea]" },
+            new FaceModel { Name = "[Dora]", Uses = 5 },
+        ], ModelGroups.FavId);
+        Assert.Equal(["[Dora]", "[Anna]", "[Bea]", "[Cleo]"], models.Select(model => model.Name));
+    }
 }
 
 public class DownloadTests
@@ -243,13 +278,15 @@ public class ConfigTests
     }
 
     [Fact]
-    public void ProfileSwitchKeepsTheNumberKeys()
+    public void ProfileSwitchKeepsNumberKeysAndUses()
     {
         var config = TagConfig.CreateDefault();
         config.Models[0].Key = 3;
+        config.Models[0].Uses = 7;
         config.SwitchProfile(TagConfig.ProfileDownloads);
         config.SwitchProfile(TagConfig.ProfileModels);
         Assert.Equal(3, config.Models[0].Key);
+        Assert.Equal(7, config.Models[0].Uses);
     }
 
     [Fact]

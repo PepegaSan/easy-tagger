@@ -32,15 +32,18 @@ static class SelectedFiles
 
     public static string LastNote { get; private set; } = "";
 
-    public static List<string> Capture()
+    // Read while WM_HOTKEY is still handled, before BeginInvoke runs later code.
+    public static IntPtr ForegroundNow() => GetForegroundWindow();
+
+    public static List<string> Capture(IntPtr foregroundAtHotkey = default)
     {
         LastNote = "";
-        var foreground = GetAncestor(GetForegroundWindow(), GaRoot);
+        var foreground = foregroundAtHotkey != IntPtr.Zero ? foregroundAtHotkey : GetForegroundWindow();
         var fromShell = FromExplorer(foreground);
         if (fromShell.Count > 0)
             return fromShell;
         FocusSpanFile(foreground);
-        return FromClipboardCopy();
+        return FromClipboardCopy(foreground);
     }
 
     static List<string> FromExplorer(IntPtr foreground)
@@ -62,13 +65,14 @@ static class SelectedFiles
                 try
                 {
                     var handle = new IntPtr(Convert.ToInt64(window.HWND));
-                    if (handle != foreground && GetAncestor(handle, GaRoot) != foreground)
+                    if (!OwnsShellWindow(handle, foreground))
                         continue;
                     dynamic items = window.Document.SelectedItems();
                     int selected = items.Count;
                     for (var itemIndex = 0; itemIndex < selected; itemIndex++)
                         paths.Add((string)items.Item(itemIndex).Path);
-                    break;
+                    if (paths.Count > 0)
+                        break;
                 }
                 catch (Exception ex) when (ex is COMException or RuntimeBinderException)
                 {
@@ -84,11 +88,20 @@ static class SelectedFiles
         return ExistingFiles(paths);
     }
 
-    static List<string> FromClipboardCopy()
+    static List<string> FromClipboardCopy(IntPtr foreground)
     {
         var backup = SnapshotClipboard();
         if (!TryEmptyClipboard())
+        {
+            LastNote = UiText.Get("clipboard-busy");
             return [];
+        }
+
+        if (foreground != IntPtr.Zero)
+        {
+            SetForegroundWindow(foreground);
+            Thread.Sleep(80);
+        }
 
         WaitUntilModifiersReleased();
         var sequence = GetClipboardSequenceNumber();
@@ -350,6 +363,21 @@ static class SelectedFiles
         }
     }
 
+    // Explorer focus can sit on an inner list view; the shell window is an ancestor of it.
+    static bool OwnsShellWindow(IntPtr shellHwnd, IntPtr active)
+    {
+        if (shellHwnd == IntPtr.Zero || active == IntPtr.Zero)
+            return false;
+        if (shellHwnd == active)
+            return true;
+        for (var walk = active; walk != IntPtr.Zero; walk = GetParent(walk))
+        {
+            if (walk == shellHwnd)
+                return true;
+        }
+        return GetAncestor(shellHwnd, GaRoot) == GetAncestor(active, GaRoot);
+    }
+
     static void FocusSpanFile(IntPtr foreground)
     {
         if (foreground == IntPtr.Zero || !IsSpanFinder(foreground))
@@ -394,15 +422,28 @@ static class SelectedFiles
 
     static void WaitUntilModifiersReleased()
     {
-        for (var attempt = 0; attempt < 25; attempt++)
+        for (var attempt = 0; attempt < 40; attempt++)
         {
-            var control = (GetAsyncKeyState(VkControl) & 0x8000) != 0;
-            var alt = (GetAsyncKeyState(0x12) & 0x8000) != 0;
-            var shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
-            if (!control && !alt && !shift)
+            if (!AnyHotkeyHeld())
                 return;
             Thread.Sleep(40);
         }
+    }
+
+    static bool AnyHotkeyHeld()
+    {
+        if ((GetAsyncKeyState(VkControl) & 0x8000) != 0)
+            return true;
+        if ((GetAsyncKeyState(0x12) & 0x8000) != 0)
+            return true;
+        if ((GetAsyncKeyState(0x10) & 0x8000) != 0)
+            return true;
+        for (var vk = 0x70; vk <= 0x87; vk++)
+        {
+            if ((GetAsyncKeyState(vk) & 0x8000) != 0)
+                return true;
+        }
+        return false;
     }
 
     [DllImport("user32.dll")]
@@ -413,6 +454,9 @@ static class SelectedFiles
 
     [DllImport("user32.dll")]
     static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetParent(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     static extern void keybd_event(byte virtualKey, byte scan, uint flags, UIntPtr extra);

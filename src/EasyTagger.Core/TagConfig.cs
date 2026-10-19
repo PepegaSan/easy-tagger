@@ -12,6 +12,9 @@ public sealed class FaceModel
 
     // Optional number key 1–9 for the picker. It belongs to the model, so it survives reordering.
     public int? Key { get; set; }
+
+    // How often the picker chose this model. The Fav chip lists the most used first.
+    public int Uses { get; set; }
 }
 
 public sealed class ModelCategory
@@ -115,6 +118,9 @@ public sealed class TagConfig : IPickerProfile
     public double WindowTop { get; set; }
     public double WindowWidth { get; set; }
     public double WindowHeight { get; set; }
+    // The picker's size once the user resized it. 0 lets it fit its content.
+    public double PickerWidth { get; set; }
+    public double PickerHeight { get; set; }
     public string ModelBatchFolder { get; set; } = "";
     public bool ModelBatchFolderTag { get; set; }
     public DownloadPicker DownloadPicker { get; set; } = DownloadPicker.CreateDefault();
@@ -290,6 +296,7 @@ public sealed class TagConfig : IPickerProfile
             Categories = model.Categories.ToList(),
             CategoriesInName = model.CategoriesInName.ToList(),
             Key = model.Key,
+            Uses = model.Uses,
         }).ToList();
 
     static DownloadPicker ClonePicker(DownloadPicker picker)

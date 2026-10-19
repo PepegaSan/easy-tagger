@@ -15,6 +15,11 @@ public static class ModelGroups
 {
     public const string AllId = "all";
     public const string OtherId = "other";
+    // Every model, the most used first.
+    public const string FavId = "fav";
+
+    // Culture-aware, so an umlaut sorts next to its base letter instead of after Z.
+    static readonly StringComparer NameOrder = StringComparer.CurrentCultureIgnoreCase;
 
     static readonly Dictionary<string, string> Synonyms = new(StringComparer.Ordinal)
     {
@@ -243,21 +248,23 @@ public static class ModelGroups
 
         var otherCount = counts.GetValueOrDefault(OtherId);
         counts.Remove(OtherId);
-        var ranked = counts
+        var sorted = counts
             .Select(pair => new GroupChip(pair.Key, labels.GetValueOrDefault(pair.Key, pair.Key), pair.Value))
-            .OrderByDescending(chip => chip.Count)
-            .ThenBy(chip => chip.Label, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(chip => chip.Label, NameOrder)
             .ToList();
         if (otherCount > 0)
-            ranked.Add(new GroupChip(OtherId, otherLabel, otherCount));
-        return ranked;
+            sorted.Add(new GroupChip(OtherId, otherLabel, otherCount));
+        return sorted;
     }
 
+    // Sorts by name. Fav keeps every model and puts the most used first.
     public static List<FaceModel> Filter(IEnumerable<FaceModel> models, string? groupId)
     {
-        var list = models.ToList();
+        if (groupId == FavId)
+            return models.OrderByDescending(model => model.Uses).ThenBy(model => model.Name, NameOrder).ToList();
+        var sorted = models.OrderBy(model => model.Name, NameOrder);
         if (string.IsNullOrEmpty(groupId) || groupId == AllId)
-            return list;
-        return list.Where(model => IdsFor(model).Contains(groupId)).ToList();
+            return sorted.ToList();
+        return sorted.Where(model => IdsFor(model).Contains(groupId)).ToList();
     }
 }
